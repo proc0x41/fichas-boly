@@ -1,0 +1,163 @@
+import { useEffect, useState } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import { StatusBadge } from '../components/StatusBadge'
+import { EmptyState } from '../components/EmptyState'
+import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList } from 'lucide-react'
+import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
+import type { Cliente, Visita, VisitaCodigo, StatusVisita } from '../types'
+
+export default function ClienteDetalhe() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const [cliente, setCliente] = useState<Cliente | null>(null)
+  const [visitas, setVisitas] = useState<(Visita & { codigos: VisitaCodigo[] })[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!id) return
+    Promise.all([
+      supabase.from('clientes').select('*').eq('id', id).single(),
+      supabase
+        .from('visitas')
+        .select('*, codigos:visita_codigos(*)')
+        .eq('cliente_id', id)
+        .order('data_visita', { ascending: false })
+        .limit(20),
+    ]).then(([cRes, vRes]) => {
+      if (cRes.data) setCliente(cRes.data as Cliente)
+      if (vRes.data) setVisitas(vRes.data as (Visita & { codigos: VisitaCodigo[] })[])
+      setLoading(false)
+    })
+  }, [id])
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+      </div>
+    )
+  }
+
+  if (!cliente) {
+    return (
+      <div className="px-4 pt-4">
+        <EmptyState title="Cliente não encontrado" />
+      </div>
+    )
+  }
+
+  const info = [
+    { label: 'Razão Social', value: cliente.razao_social },
+    { label: 'CNPJ', value: cliente.cnpj ? maskCNPJ(cliente.cnpj) : null },
+    { label: 'IE', value: cliente.inscricao_estadual },
+    {
+      label: 'Endereço',
+      value: [
+        cliente.endereco,
+        cliente.numero,
+        cliente.bairro,
+        cliente.cidade,
+        cliente.cep ? maskCEP(cliente.cep) : null,
+      ].filter(Boolean).join(', '),
+    },
+    { label: 'Telefone', value: cliente.telefone ? maskTelefone(cliente.telefone) : null },
+    { label: 'E-mail', value: cliente.email },
+    { label: 'Comprador', value: cliente.comprador },
+    { label: 'Dia de Compras', value: cliente.dia_compras },
+    {
+      label: 'Cliente Desde',
+      value: cliente.cliente_desde
+        ? new Date(cliente.cliente_desde).toLocaleDateString('pt-BR')
+        : null,
+    },
+    {
+      label: 'Displays',
+      value: `Chão: ${cliente.display_chao} | Balcão: ${cliente.display_balcao} | Parede: ${cliente.display_parede} (Total: ${cliente.total_itens})`,
+    },
+  ]
+
+  return (
+    <div className="px-4 pt-4 pb-24">
+      <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
+        <ArrowLeft className="h-4 w-4" />
+        Voltar
+      </button>
+
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">{cliente.fantasia}</h2>
+          {!cliente.ativo && (
+            <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+              Inativo
+            </span>
+          )}
+        </div>
+        <Link
+          to={`/clientes/${id}/editar`}
+          className="flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors active:bg-gray-200"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Editar
+        </Link>
+      </div>
+
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white">
+        {info.map(
+          ({ label, value }) =>
+            value && (
+              <div key={label} className="border-b border-gray-100 px-4 py-3 last:border-0">
+                <p className="text-xs font-medium text-gray-400">{label}</p>
+                <p className="text-sm text-gray-800">{value}</p>
+              </div>
+            ),
+        )}
+      </div>
+
+      <h3 className="mb-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
+        Histórico de Visitas
+      </h3>
+
+      {visitas.length === 0 ? (
+        <EmptyState
+          icon={<ClipboardList className="h-10 w-10" />}
+          title="Nenhuma visita registrada"
+        />
+      ) : (
+        <div className="space-y-3">
+          {visitas.map((v) => (
+            <div key={v.id} className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">
+                  {new Date(v.data_visita).toLocaleDateString('pt-BR')}
+                </span>
+                <StatusBadge status={v.status as StatusVisita} />
+              </div>
+              {v.observacao && <p className="mb-2 text-xs text-gray-500">{v.observacao}</p>}
+              {v.codigos && v.codigos.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {v.codigos.map((c) => (
+                    <span
+                      key={c.id}
+                      className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
+                    >
+                      {c.codigo}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Link
+        to={`/clientes/${id}/visita`}
+        className="fixed bottom-20 right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-primary-600 px-5 text-sm font-medium text-white shadow-lg transition-transform active:scale-95"
+      >
+        <Plus className="h-5 w-5" />
+        Registrar Visita
+      </Link>
+    </div>
+  )
+}
