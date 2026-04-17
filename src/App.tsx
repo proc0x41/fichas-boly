@@ -20,8 +20,20 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminVendedores from './pages/admin/AdminVendedores'
 import AdminClientes from './pages/admin/AdminClientes'
 import AdminRotas from './pages/admin/AdminRotas'
+import { hasSupabaseEnv, supabaseEnvError } from './lib/supabase'
 
 export default function App() {
+  if (!hasSupabaseEnv) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-lg rounded-xl border border-red-200 bg-white p-6 shadow-sm">
+          <h1 className="mb-2 text-lg font-semibold text-red-700">Configuração ausente no deploy</h1>
+          <p className="text-sm text-gray-700">{supabaseEnvError}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <BrowserRouter>
       <AuthProvider>
