@@ -1,5 +1,5 @@
-import { useState, useCallback, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback, type FormEvent } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
   closestCenter,
@@ -20,7 +20,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { SearchInput } from '../components/SearchInput'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, GripVertical, X } from 'lucide-react'
+import { ArrowLeft, GripVertical, X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente } from '../types'
 
@@ -58,7 +58,7 @@ function SortableCliente({
         <p className="truncate text-sm font-medium text-gray-800">{item.fantasia}</p>
         {item.bairro && <p className="text-xs text-gray-400">{item.bairro}</p>}
       </div>
-      <button onClick={onRemove} className="text-gray-400 hover:text-red-500">
+      <button type="button" onClick={onRemove} className="text-gray-400 hover:text-red-500">
         <X className="h-4 w-4" />
       </button>
     </div>
@@ -67,37 +67,65 @@ function SortableCliente({
 
 export default function RotaForm() {
   const navigate = useNavigate()
+  const { id: rotaId } = useParams()
+  const isEditing = Boolean(rotaId)
   const { user } = useAuth()
   const [nome, setNome] = useState('')
-  const [dataRota, setDataRota] = useState(new Date().toISOString().split('T')[0])
   const [clientesSelecionados, setClientesSelecionados] = useState<ClienteItem[]>([])
   const [searchResults, setSearchResults] = useState<Cliente[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingData, setLoadingData] = useState(isEditing)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   )
 
-  const searchClientes = useCallback(
-    async (query: string) => {
-      setSearchQuery(query)
-      if (!query.trim()) {
-        setSearchResults([])
-        return
+  useEffect(() => {
+    if (!isEditing || !rotaId) return
+    ;(async () => {
+      const [{ data: rota }, { data: paradas }] = await Promise.all([
+        supabase.from('rotas').select('nome').eq('id', rotaId).single(),
+        supabase
+          .from('rota_clientes')
+          .select('cliente_id, ordem, cliente:clientes(id, fantasia, bairro)')
+          .eq('rota_id', rotaId)
+          .order('ordem'),
+      ])
+      if (rota) setNome(rota.nome)
+      if (paradas) {
+        setClientesSelecionados(
+          (paradas as unknown as {
+            cliente: { id: string; fantasia: string; bairro: string | null } | null
+          }[])
+            .filter((p) => p.cliente)
+            .map((p) => ({
+              id: p.cliente!.id,
+              fantasia: p.cliente!.fantasia,
+              bairro: p.cliente!.bairro,
+            })),
+        )
       }
-      const { data } = await supabase
-        .from('clientes')
-        .select('id, fantasia, bairro')
-        .eq('ativo', true)
-        .ilike('fantasia', `%${query}%`)
-        .limit(10)
+      setLoadingData(false)
+    })()
+  }, [isEditing, rotaId])
 
-      setSearchResults((data ?? []) as Cliente[])
-    },
-    [],
-  )
+  const searchClientes = useCallback(async (query: string) => {
+    setSearchQuery(query)
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+    const { data } = await supabase
+      .from('clientes')
+      .select('id, fantasia, bairro')
+      .eq('ativo', true)
+      .ilike('fantasia', `%${query}%`)
+      .limit(10)
+
+    setSearchResults((data ?? []) as Cliente[])
+  }, [])
 
   const addCliente = (c: Cliente) => {
     if (clientesSelecionados.some((s) => s.id === c.id)) return
@@ -137,9 +165,53 @@ export default function RotaForm() {
     if (!user) return
     setLoading(true)
 
+    if (isEditing && rotaId) {
+      const { error: uErr } = await supabase
+        .from('rotas')
+        .update({ nome: nome.trim() })
+        .eq('id', rotaId)
+      if (uErr) {
+        toast.error('Erro ao atualizar rota')
+        setLoading(false)
+        return
+      }
+
+      const { error: dErr } = await supabase.from('rota_clientes').delete().eq('rota_id', rotaId)
+      if (dErr) {
+        toast.error('Erro ao atualizar paradas')
+        setLoading(false)
+        return
+      }
+
+      const paradas = clientesSelecionados.map((c, idx) => ({
+        rota_id: rotaId,
+        cliente_id: c.id,
+        ordem: idx,
+      }))
+      const { error: pErr } = await supabase.from('rota_clientes').insert(paradas)
+      setLoading(false)
+      if (pErr) {
+        toast.error('Erro ao salvar paradas')
+      } else {
+        toast.success('Rota atualizada')
+        navigate(`/rotas/${rotaId}`, { replace: true })
+      }
+      return
+    }
+
+    const { count } = await supabase
+      .from('rotas')
+      .select('id', { count: 'exact', head: true })
+      .eq('vendedor_id', user.id)
+      .eq('ativo', true)
+
     const { data: rota, error } = await supabase
       .from('rotas')
-      .insert({ vendedor_id: user.id, nome: nome.trim(), data_rota: dataRota })
+      .insert({
+        vendedor_id: user.id,
+        nome: nome.trim(),
+        ordem: count ?? 0,
+      })
       .select('id')
       .single()
 
@@ -156,24 +228,39 @@ export default function RotaForm() {
     }))
 
     const { error: pErr } = await supabase.from('rota_clientes').insert(paradas)
+    setLoading(false)
     if (pErr) {
       toast.error('Rota criada, mas erro ao salvar paradas')
     } else {
       toast.success('Rota criada')
     }
-
-    setLoading(false)
     navigate(`/rotas/${rota.id}`, { replace: true })
+  }
+
+  if (loadingData) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+      </div>
+    )
   }
 
   return (
     <div className="px-4 pt-4 pb-8">
-      <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
+      <button
+        onClick={() => navigate(-1)}
+        className="mb-4 flex items-center gap-1 text-sm text-gray-500"
+      >
         <ArrowLeft className="h-4 w-4" />
         Voltar
       </button>
 
-      <h2 className="mb-4 text-lg font-bold text-gray-900">Nova Rota</h2>
+      <h2 className="mb-4 text-lg font-bold text-gray-900">
+        {isEditing ? 'Editar Rota' : 'Nova Rota'}
+      </h2>
+      <p className="mb-4 text-xs text-gray-500">
+        Uma rota é um agrupamento reutilizável de clientes na sequência em que você costuma visitá-los.
+      </p>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
@@ -183,16 +270,6 @@ export default function RotaForm() {
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             placeholder='Ex: "Centro - Segunda"'
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Data</label>
-          <input
-            type="date"
-            value={dataRota}
-            onChange={(e) => setDataRota(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
           />
         </div>
@@ -246,7 +323,7 @@ export default function RotaForm() {
         )}
 
         <LoadingButton type="submit" loading={loading} className="w-full">
-          Criar Rota
+          {isEditing ? 'Salvar Alterações' : 'Criar Rota'}
         </LoadingButton>
       </form>
     </div>

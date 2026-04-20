@@ -21,22 +21,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [perfil, setPerfil] = useState<Perfil | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchPerfil = useCallback(async (accessToken: string) => {
+  const fetchPerfil = useCallback(async (userId: string) => {
     try {
-      const res = await supabase.functions.invoke('verificar-role', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-      if (res.error || !res.data) {
+      const { data, error } = await supabase.from('perfis').select('*').eq('user_id', userId).maybeSingle()
+      if (error || !data) {
         setPerfil(null)
         return
       }
-      const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
       if (!data.ativo) {
         await supabase.auth.signOut()
         setPerfil(null)
         return
       }
-      setPerfil(data as Perfil)
+      const p = data as Perfil
+      setPerfil({
+        ...p,
+        ciclo_dias: p.ciclo_dias ?? 7,
+        lista_rodada_desde: p.lista_rodada_desde ?? null,
+      })
     } catch {
       setPerfil(null)
     }
@@ -44,8 +46,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshPerfil = useCallback(async () => {
     const { data: { session: s } } = await supabase.auth.getSession()
-    if (s?.access_token) {
-      await fetchPerfil(s.access_token)
+    if (s?.user?.id) {
+      await fetchPerfil(s.user.id)
     }
   }, [fetchPerfil])
 
@@ -53,8 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s)
       setUser(s?.user ?? null)
-      if (s?.access_token) {
-        fetchPerfil(s.access_token).finally(() => setLoading(false))
+      if (s?.user?.id) {
+        fetchPerfil(s.user.id).finally(() => setLoading(false))
       } else {
         setLoading(false)
       }
@@ -63,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s)
       setUser(s?.user ?? null)
-      if (s?.access_token) {
-        fetchPerfil(s.access_token)
+      if (s?.user?.id) {
+        fetchPerfil(s.user.id)
       } else {
         setPerfil(null)
       }

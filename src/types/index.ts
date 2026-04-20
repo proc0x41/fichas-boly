@@ -5,6 +5,9 @@ export interface Perfil {
   role: 'vendedor' | 'admin'
   must_change_password: boolean
   ativo: boolean
+  ciclo_dias: number
+  /** Se definido, a checklist só considera conclusões com `finalizada_em` depois deste instante (nova rodada). */
+  lista_rodada_desde: string | null
   criado_em: string
 }
 
@@ -43,6 +46,8 @@ export interface Visita {
   data_visita: string
   status: StatusVisita
   observacao: string | null
+  condicoes_pagamento: string | null
+  rota_execucao_id: string | null
   criado_em: string
   cliente?: Cliente
   codigos?: VisitaCodigo[]
@@ -52,13 +57,20 @@ export interface VisitaCodigo {
   id: string
   visita_id: string
   codigo: string
+  quantidade: number
+}
+
+export interface CodigoItem {
+  codigo: string
+  quantidade: number
 }
 
 export interface Rota {
   id: string
   vendedor_id: string
   nome: string
-  data_rota: string
+  ordem: number
+  ativo: boolean
   criado_em: string
   paradas?: RotaCliente[]
 }
@@ -68,7 +80,14 @@ export interface RotaCliente {
   rota_id: string
   cliente_id: string
   ordem: number
-  visita_id: string | null
   cliente?: Cliente
-  visita?: Visita
+}
+
+export interface RotaExecucao {
+  id: string
+  rota_id: string
+  vendedor_id: string
+  iniciada_em: string
+  finalizada_em: string | null
+  rota?: Rota
 }

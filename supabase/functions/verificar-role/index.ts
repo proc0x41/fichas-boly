@@ -41,7 +41,7 @@ serve(async (req) => {
 
     const { data: perfil, error } = await supabaseAdmin
       .from('perfis')
-      .select('role, must_change_password, ativo, nome')
+      .select('id, user_id, role, must_change_password, ativo, nome, ciclo_dias, criado_em')
       .eq('user_id', user.id)
       .single()
 

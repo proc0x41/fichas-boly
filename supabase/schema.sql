@@ -11,6 +11,8 @@ CREATE TABLE perfis (
   role text CHECK (role IN ('vendedor', 'admin')) DEFAULT 'vendedor' NOT NULL,
   must_change_password boolean DEFAULT true NOT NULL,
   ativo boolean DEFAULT true NOT NULL,
+  ciclo_dias int NOT NULL DEFAULT 7 CHECK (ciclo_dias BETWEEN 1 AND 60),
+  lista_rodada_desde timestamptz,
   criado_em timestamptz DEFAULT now() NOT NULL
 );
 
@@ -46,7 +48,7 @@ CREATE INDEX idx_clientes_vendedor ON clientes(vendedor_id);
 CREATE INDEX idx_clientes_fantasia ON clientes(fantasia);
 CREATE INDEX idx_clientes_bairro ON clientes(bairro);
 
--- 3. VISITAS (cada uso da ficha)
+-- 3. VISITAS (cada uso da ficha = um pedido na rua)
 CREATE TABLE visitas (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id uuid REFERENCES clientes ON DELETE CASCADE NOT NULL,
@@ -54,18 +56,22 @@ CREATE TABLE visitas (
   data_visita date NOT NULL DEFAULT CURRENT_DATE,
   status text CHECK (status IN ('pendente', 'visitado', 'nao_encontrado', 'reagendado')) DEFAULT 'pendente' NOT NULL,
   observacao text CHECK (char_length(observacao) <= 2000),
+  condicoes_pagamento text CHECK (char_length(condicoes_pagamento) <= 500),
+  rota_execucao_id uuid, -- FK adicionada após criar rota_execucoes
   criado_em timestamptz DEFAULT now() NOT NULL
 );
 
 CREATE INDEX idx_visitas_cliente ON visitas(cliente_id);
 CREATE INDEX idx_visitas_vendedor ON visitas(vendedor_id);
 CREATE INDEX idx_visitas_data ON visitas(data_visita DESC);
+CREATE INDEX idx_visitas_execucao ON visitas(rota_execucao_id);
 
 -- 4. CÓDIGOS DE PRODUTO POR VISITA (verso da ficha)
 CREATE TABLE visita_codigos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   visita_id uuid REFERENCES visitas ON DELETE CASCADE NOT NULL,
-  codigo text NOT NULL CHECK (char_length(codigo) >= 1 AND char_length(codigo) <= 20)
+  codigo text NOT NULL CHECK (char_length(codigo) >= 1 AND char_length(codigo) <= 20),
+  quantidade int NOT NULL DEFAULT 1 CHECK (quantidade > 0 AND quantidade <= 99999)
 );
 
 CREATE INDEX idx_visita_codigos_visita ON visita_codigos(visita_id);
@@ -86,28 +92,48 @@ CREATE TRIGGER trg_max_codigos
   FOR EACH ROW
   EXECUTE FUNCTION check_max_codigos_per_visita();
 
--- 5. ROTAS (grupinho com elástico)
+-- 5. ROTAS (template reutilizável = agrupamento ordenado de clientes)
 CREATE TABLE rotas (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   vendedor_id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL,
   nome text NOT NULL CHECK (char_length(nome) <= 100),
-  data_rota date NOT NULL,
+  ordem int NOT NULL DEFAULT 0,
+  ativo boolean NOT NULL DEFAULT true,
+  data_rota date, -- legado/opcional: rotas-template não precisam de data
   criado_em timestamptz DEFAULT now() NOT NULL
 );
 
 CREATE INDEX idx_rotas_vendedor ON rotas(vendedor_id);
-CREATE INDEX idx_rotas_data ON rotas(data_rota DESC);
+CREATE INDEX idx_rotas_ordem ON rotas(vendedor_id, ordem);
 
--- 6. CLIENTES DENTRO DE UMA ROTA
+-- 6. CLIENTES DENTRO DE UMA ROTA (conteúdo do template)
 CREATE TABLE rota_clientes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   rota_id uuid REFERENCES rotas ON DELETE CASCADE NOT NULL,
   cliente_id uuid REFERENCES clientes ON DELETE CASCADE NOT NULL,
-  ordem int NOT NULL CHECK (ordem >= 0),
-  visita_id uuid REFERENCES visitas ON DELETE SET NULL
+  ordem int NOT NULL CHECK (ordem >= 0)
 );
 
 CREATE INDEX idx_rota_clientes_rota ON rota_clientes(rota_id);
+
+-- 6b. EXECUÇÕES DE ROTA (cada vez que o vendedor "inicia" uma rota)
+CREATE TABLE rota_execucoes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  rota_id uuid REFERENCES rotas ON DELETE CASCADE NOT NULL,
+  vendedor_id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  iniciada_em timestamptz NOT NULL DEFAULT now(),
+  finalizada_em timestamptz
+);
+
+CREATE INDEX idx_rota_execucoes_rota ON rota_execucoes(rota_id);
+CREATE INDEX idx_rota_execucoes_vendedor_ativa
+  ON rota_execucoes(vendedor_id)
+  WHERE finalizada_em IS NULL;
+
+-- FK de visitas.rota_execucao_id (criada aqui, pós rota_execucoes)
+ALTER TABLE visitas
+  ADD CONSTRAINT visitas_rota_execucao_id_fkey
+  FOREIGN KEY (rota_execucao_id) REFERENCES rota_execucoes ON DELETE SET NULL;
 
 -- 7. AUDIT LOG
 CREATE TABLE audit_log (
@@ -332,6 +358,38 @@ CREATE POLICY "vendedor_delete_rota_clientes" ON rota_clientes FOR DELETE
   );
 
 CREATE POLICY "admin_all_rota_clientes" ON rota_clientes FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- -------------------- ROTA_EXECUCOES --------------------
+ALTER TABLE rota_execucoes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "vendedor_select_execucoes" ON rota_execucoes FOR SELECT
+  TO authenticated
+  USING (vendedor_id = auth.uid());
+
+CREATE POLICY "vendedor_insert_execucoes" ON rota_execucoes FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    vendedor_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM rotas
+      WHERE rotas.id = rota_id
+      AND rotas.vendedor_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "vendedor_update_execucoes" ON rota_execucoes FOR UPDATE
+  TO authenticated
+  USING (vendedor_id = auth.uid())
+  WITH CHECK (vendedor_id = auth.uid());
+
+CREATE POLICY "vendedor_delete_execucoes" ON rota_execucoes FOR DELETE
+  TO authenticated
+  USING (vendedor_id = auth.uid());
+
+CREATE POLICY "admin_all_execucoes" ON rota_execucoes FOR ALL
   TO authenticated
   USING (is_admin())
   WITH CHECK (is_admin());

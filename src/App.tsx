@@ -15,6 +15,7 @@ import ClienteDetalhe from './pages/ClienteDetalhe'
 import VisitaForm from './pages/VisitaForm'
 import RotasList from './pages/Rotas'
 import RotaForm from './pages/RotaForm'
+import RotaDetalhe from './pages/RotaDetalhe'
 import RotaExecucao from './pages/RotaExecucao'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminVendedores from './pages/admin/AdminVendedores'
@@ -58,11 +59,18 @@ export default function App() {
               <Route path="/clientes/novo" element={<ClienteForm />} />
               <Route path="/clientes/:id" element={<ClienteDetalhe />} />
               <Route path="/clientes/:id/editar" element={<ClienteForm />} />
-              <Route path="/clientes/:id/visita" element={<VisitaForm />} />
+              <Route path="/clientes/:clienteId/visita/nova" element={<VisitaForm />} />
+              <Route path="/clientes/:clienteId/visita/:visitaId/editar" element={<VisitaForm />} />
               <Route path="/rotas" element={<RotasList />} />
               <Route path="/rotas/nova" element={<RotaForm />} />
-              <Route path="/rotas/:id" element={<RotaExecucao />} />
-              <Route path="/rotas/:id/visita/:clienteId" element={<VisitaForm />} />
+              <Route path="/rotas/:id" element={<RotaDetalhe />} />
+              <Route path="/rotas/:id/editar" element={<RotaForm />} />
+              <Route path="/rotas/execucao/:execucaoId" element={<RotaExecucao />} />
+              <Route path="/rotas/execucao/:execucaoId/visita/:clienteId" element={<VisitaForm />} />
+              <Route
+                path="/rotas/execucao/:execucaoId/visita/:clienteId/:visitaId/editar"
+                element={<VisitaForm />}
+              />
 
               <Route element={<AdminRoute />}>
                 <Route path="/admin" element={<AdminDashboard />} />

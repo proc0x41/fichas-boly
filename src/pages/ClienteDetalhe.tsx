@@ -7,11 +7,13 @@ import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
 import type { Cliente, Visita, VisitaCodigo, StatusVisita } from '../types'
 
+type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
+
 export default function ClienteDetalhe() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [cliente, setCliente] = useState<Cliente | null>(null)
-  const [visitas, setVisitas] = useState<(Visita & { codigos: VisitaCodigo[] })[]>([])
+  const [visitas, setVisitas] = useState<VisitaComCodigos[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -26,7 +28,7 @@ export default function ClienteDetalhe() {
         .limit(20),
     ]).then(([cRes, vRes]) => {
       if (cRes.data) setCliente(cRes.data as Cliente)
-      if (vRes.data) setVisitas(vRes.data as (Visita & { codigos: VisitaCodigo[] })[])
+      if (vRes.data) setVisitas(vRes.data as VisitaComCodigos[])
       setLoading(false)
     })
   }, [id])
@@ -131,17 +133,34 @@ export default function ClienteDetalhe() {
                 <span className="text-sm font-medium text-gray-700">
                   {new Date(v.data_visita).toLocaleDateString('pt-BR')}
                 </span>
-                <StatusBadge status={v.status as StatusVisita} />
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={v.status as StatusVisita} />
+                  <Link
+                    to={`/clientes/${id}/visita/${v.id}/editar`}
+                    className="flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Editar
+                  </Link>
+                </div>
               </div>
+              {v.condicoes_pagamento && (
+                <p className="mb-1 text-xs text-gray-600">
+                  <span className="font-medium">Pagamento:</span> {v.condicoes_pagamento}
+                </p>
+              )}
               {v.observacao && <p className="mb-2 text-xs text-gray-500">{v.observacao}</p>}
               {v.codigos && v.codigos.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {v.codigos.map((c) => (
                     <span
                       key={c.id}
-                      className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
+                      className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
                     >
-                      {c.codigo}
+                      <span>{c.codigo}</span>
+                      <span className="rounded-full bg-white px-1 text-[10px] font-semibold text-gray-700">
+                        ×{c.quantidade}
+                      </span>
                     </span>
                   ))}
                 </div>
@@ -152,7 +171,7 @@ export default function ClienteDetalhe() {
       )}
 
       <Link
-        to={`/clientes/${id}/visita`}
+        to={`/clientes/${id}/visita/nova`}
         className="fixed bottom-20 right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-primary-600 px-5 text-sm font-medium text-white shadow-lg transition-transform active:scale-95"
       >
         <Plus className="h-5 w-5" />

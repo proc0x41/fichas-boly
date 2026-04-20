@@ -1,92 +1,101 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
 import { ProgressBar } from '../components/ProgressBar'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, Loader2, MapPin, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, MapPin, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { StatusVisita } from '../types'
 
 interface Parada {
-  id: string
   cliente_id: string
   ordem: number
-  visita_id: string | null
   cliente: { fantasia: string; endereco: string | null; bairro: string | null; cidade: string | null }
-  visita: { status: StatusVisita } | null
+  visita: { id: string; status: StatusVisita } | null
 }
 
 export default function RotaExecucao() {
-  const { id } = useParams()
+  const { execucaoId } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
   const [nome, setNome] = useState('')
+  const [rotaId, setRotaId] = useState<string | null>(null)
   const [paradas, setParadas] = useState<Parada[]>([])
   const [loading, setLoading] = useState(true)
-  const [reutilizando, setReutilizando] = useState(false)
+  const [finalizando, setFinalizando] = useState(false)
+  const [finalizada, setFinalizada] = useState(false)
 
   useEffect(() => {
-    if (!id) return
-    loadRota()
-  }, [id])
+    if (!execucaoId) return
+    loadExecucao()
+  }, [execucaoId])
 
-  const loadRota = async () => {
-    const { data: rota } = await supabase
-      .from('rotas')
-      .select('nome')
-      .eq('id', id)
+  const loadExecucao = async () => {
+    setLoading(true)
+
+    const { data: exec } = await supabase
+      .from('rota_execucoes')
+      .select('id, finalizada_em, rota:rotas(id, nome)')
+      .eq('id', execucaoId)
       .single()
 
-    if (rota) setNome(rota.nome)
-
-    const { data } = await supabase
-      .from('rota_clientes')
-      .select('*, cliente:clientes(fantasia, endereco, bairro, cidade), visita:visitas(status)')
-      .eq('rota_id', id)
-      .order('ordem')
-
-    if (data) setParadas(data as Parada[])
-    setLoading(false)
-  }
-
-  const reutilizarRota = async () => {
-    if (!user || paradas.length === 0) return
-    setReutilizando(true)
-
-    const hoje = new Date().toISOString().split('T')[0]
-
-    const { data: novaRota, error } = await supabase
-      .from('rotas')
-      .insert({ vendedor_id: user.id, nome, data_rota: hoje })
-      .select('id')
-      .single()
-
-    if (error || !novaRota) {
-      toast.error('Erro ao reutilizar rota')
-      setReutilizando(false)
+    if (!exec) {
+      setLoading(false)
       return
     }
 
-    const novasParadas = paradas.map((p) => ({
-      rota_id: novaRota.id,
-      cliente_id: p.cliente_id,
-      ordem: p.ordem,
-    }))
+    const rota = exec.rota as unknown as { id: string; nome: string } | null
+    setNome(rota?.nome ?? '')
+    setRotaId(rota?.id ?? null)
+    setFinalizada(Boolean(exec.finalizada_em))
 
-    const { error: pErr } = await supabase.from('rota_clientes').insert(novasParadas)
-
-    setReutilizando(false)
-
-    if (pErr) {
-      toast.error('Rota criada, mas erro ao copiar paradas')
-    } else {
-      toast.success('Rota reutilizada para hoje')
+    if (!rota?.id) {
+      setLoading(false)
+      return
     }
 
-    navigate(`/rotas/${novaRota.id}`, { replace: true })
+    const [{ data: paradasTemplate }, { data: visitasExec }] = await Promise.all([
+      supabase
+        .from('rota_clientes')
+        .select('cliente_id, ordem, cliente:clientes(fantasia, endereco, bairro, cidade)')
+        .eq('rota_id', rota.id)
+        .order('ordem'),
+      supabase
+        .from('visitas')
+        .select('id, cliente_id, status')
+        .eq('rota_execucao_id', execucaoId),
+    ])
+
+    const visitasPorCliente = new Map<string, { id: string; status: StatusVisita }>()
+    ;(visitasExec ?? []).forEach((v) => {
+      visitasPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita })
+    })
+
+    setParadas(
+      ((paradasTemplate ?? []) as unknown as Parada[]).map((p) => ({
+        ...p,
+        visita: visitasPorCliente.get(p.cliente_id) ?? null,
+      })),
+    )
+    setLoading(false)
+  }
+
+  const finalizarExecucao = async () => {
+    if (!execucaoId) return
+    if (!confirm('Finalizar esta execução? Visitas pendentes ficarão como estão.')) return
+    setFinalizando(true)
+    const { error } = await supabase
+      .from('rota_execucoes')
+      .update({ finalizada_em: new Date().toISOString() })
+      .eq('id', execucaoId)
+    setFinalizando(false)
+    if (error) {
+      toast.error('Erro ao finalizar')
+      return
+    }
+    toast.success('Rota finalizada')
+    setFinalizada(true)
   }
 
   const visitados = paradas.filter((p) => p.visita?.status === 'visitado').length
@@ -110,25 +119,37 @@ export default function RotaExecucao() {
 
   return (
     <div className="px-4 pt-4 pb-8">
-      <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
+      <button
+        onClick={() => (rotaId ? navigate(`/rotas/${rotaId}`) : navigate(-1))}
+        className="mb-4 flex items-center gap-1 text-sm text-gray-500"
+      >
         <ArrowLeft className="h-4 w-4" />
         Voltar
       </button>
 
-      <div className="mb-1 flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">{nome}</h2>
-        <LoadingButton
-          variant="secondary"
-          loading={reutilizando}
-          onClick={reutilizarRota}
-          className="!py-2 !px-3 !text-xs"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Reutilizar
-        </LoadingButton>
+      <div className="mb-1 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-bold text-gray-900">{nome}</h2>
+          {finalizada && (
+            <span className="mt-0.5 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+              Finalizada
+            </span>
+          )}
+        </div>
+        {!finalizada && paradas.length > 0 && (
+          <LoadingButton
+            variant="secondary"
+            loading={finalizando}
+            onClick={finalizarExecucao}
+            className="!py-2 !px-3 !text-xs"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Finalizar
+          </LoadingButton>
+        )}
       </div>
 
-      <ProgressBar current={visitados} total={paradas.length} className="mt-2 mb-5" />
+      <ProgressBar current={visitados} total={paradas.length} className="mt-3 mb-5" />
 
       {paradas.length === 0 ? (
         <EmptyState icon={<MapPin className="h-10 w-10" />} title="Nenhuma parada nesta rota" />
@@ -136,9 +157,9 @@ export default function RotaExecucao() {
         <div className="space-y-3">
           {paradas.map((parada, idx) => (
             <Link
-              key={parada.id}
-              to={`/rotas/${id}/visita/${parada.cliente_id}`}
-              className={`block rounded-xl border border-gray-200 border-l-4 bg-white p-4 transition-colors active:bg-gray-50 ${statusColor(parada.visita?.status as StatusVisita)}`}
+              key={parada.cliente_id}
+              to={`/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}`}
+              className={`block rounded-xl border border-gray-200 border-l-4 bg-white p-4 transition-colors active:bg-gray-50 ${statusColor(parada.visita?.status)}`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
@@ -154,7 +175,7 @@ export default function RotaExecucao() {
                     </p>
                   </div>
                 </div>
-                <StatusBadge status={(parada.visita?.status as StatusVisita) ?? 'pendente'} />
+                <StatusBadge status={parada.visita?.status ?? 'pendente'} />
               </div>
             </Link>
           ))}
