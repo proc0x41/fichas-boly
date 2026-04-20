@@ -2,6 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useInactivityTimeout } from '../hooks/useInactivityTimeout'
 import { Home, Users, Map, Shield, LogOut } from 'lucide-react'
+import logo from '../assets/logo.jpeg'
 
 export function Layout() {
   const { perfil, signOut } = useAuth()
@@ -27,7 +28,11 @@ export function Layout() {
   return (
     <div className="flex h-full flex-col bg-gray-50">
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-        <h1 className="text-lg font-bold text-primary-800">Fichas</h1>
+        <img
+          src={logo}
+          alt="Fichas"
+          className="h-9 max-h-10 w-auto object-contain object-left"
+        />
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">{perfil?.nome}</span>
           <button
