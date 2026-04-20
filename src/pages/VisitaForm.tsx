@@ -36,18 +36,54 @@ export default function VisitaForm() {
   const [loadingData, setLoadingData] = useState(isEditing)
   const [clienteNome, setClienteNome] = useState('')
   const [clienteCNPJ, setClienteCNPJ] = useState<string | null>(null)
+  const [clienteComprador, setClienteComprador] = useState<string | null>(null)
+
+  const precisaResolverVisitaNaRota = Boolean(execucaoId && clienteId && !visitaId)
+  const [visitLookupDone, setVisitLookupDone] = useState(!precisaResolverVisitaNaRota)
+
+  useEffect(() => {
+    if (!precisaResolverVisitaNaRota || !clienteId || !execucaoId) return
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('visitas')
+        .select('id')
+        .eq('cliente_id', clienteId)
+        .eq('rota_execucao_id', execucaoId)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) {
+        setVisitLookupDone(true)
+        return
+      }
+      if (data?.id) {
+        navigate(
+          `/rotas/execucao/${execucaoId}/visita/${clienteId}/${data.id}/editar`,
+          { replace: true },
+        )
+        return
+      }
+      setVisitLookupDone(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [precisaResolverVisitaNaRota, clienteId, execucaoId, navigate])
 
   useEffect(() => {
     if (!clienteId) return
     supabase
       .from('clientes')
-      .select('fantasia, cnpj')
+      .select('fantasia, cnpj, comprador')
       .eq('id', clienteId)
       .single()
       .then(({ data }) => {
         if (data) {
           setClienteNome(data.fantasia)
           setClienteCNPJ(data.cnpj ?? null)
+          setClienteComprador(data.comprador?.trim() || null)
         }
       })
   }, [clienteId])
@@ -98,6 +134,7 @@ export default function VisitaForm() {
   const enviarMercos = () => {
     const pedido = {
       cnpj: clienteCNPJ,
+      comprador: clienteComprador,
       itens,
       condicoesPagamento,
       observacoes: observacao,
@@ -193,7 +230,7 @@ export default function VisitaForm() {
     navigate(-1)
   }
 
-  if (loadingData) {
+  if (!visitLookupDone || loadingData) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
@@ -203,6 +240,7 @@ export default function VisitaForm() {
 
   const canMercos = podeEnviarMercos({
     cnpj: clienteCNPJ,
+    comprador: clienteComprador,
     itens,
     condicoesPagamento,
     observacoes: observacao,

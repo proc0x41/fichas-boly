@@ -158,7 +158,11 @@ export default function RotaExecucao() {
           {paradas.map((parada, idx) => (
             <Link
               key={parada.cliente_id}
-              to={`/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}`}
+              to={
+                parada.visita
+                  ? `/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}/${parada.visita.id}/editar`
+                  : `/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}`
+              }
               className={`block rounded-xl border border-gray-200 border-l-4 bg-white p-4 transition-colors active:bg-gray-50 ${statusColor(parada.visita?.status)}`}
             >
               <div className="flex items-start justify-between">

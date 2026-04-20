@@ -5,6 +5,8 @@ const REPRESENTADA = 'Boly Comércio e Indústria de Encartelados LTDA - EPP'
 
 export interface PedidoMercos {
   cnpj: string | null
+  /** Nome do comprador no cliente — enviado para a IA da Mercos no WhatsApp */
+  comprador: string | null
   itens: CodigoItem[]
   condicoesPagamento: string | null
   observacoes: string | null
@@ -22,6 +24,10 @@ export function mensagemPedidoMercos(pedido: PedidoMercos): string {
 
   const cnpjFormatado = formatCNPJ(pedido.cnpj)
   linhas.push(`CNPJ: ${cnpjFormatado ?? '—'}`)
+  const comprador = pedido.comprador?.trim()
+  if (comprador) {
+    linhas.push(`Comprador: ${comprador}`)
+  }
   linhas.push(`O pedido é para a representada ${REPRESENTADA}`)
 
   if (pedido.itens.length > 0) {

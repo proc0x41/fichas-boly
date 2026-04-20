@@ -21,6 +21,8 @@ interface ProximaParada {
   bairro: string | null
   status: StatusVisita
   ordem: number
+  /** Quando já existe visita nesta execução, abre edição em vez de formulário em branco */
+  visita_id: string | null
 }
 
 interface ExecucaoAtiva {
@@ -59,7 +61,7 @@ export default function Dashboard() {
     const { data: rotasData } = await supabase
       .from('rotas')
       .select(
-        'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(cliente_id, status))',
+        'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status))',
       )
       .eq('ativo', true)
       .order('ordem', { ascending: true })
@@ -84,7 +86,7 @@ export default function Dashboard() {
         id: string
         iniciada_em: string
         finalizada_em: string | null
-        visitas: { cliente_id: string; status: string }[]
+        visitas: { id: string; cliente_id: string; status: string }[]
       }[]
     }[]
 
@@ -98,17 +100,21 @@ export default function Dashboard() {
 
       const ativa = (r.execucoes ?? []).find((e) => !e.finalizada_em)
       if (ativa) {
-        const visitasMap = new Map<string, StatusVisita>()
+        const visitaPorCliente = new Map<string, { id: string; status: StatusVisita }>()
         ;(ativa.visitas ?? []).forEach((v) =>
-          visitasMap.set(v.cliente_id, v.status as StatusVisita),
+          visitaPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita }),
         )
-        const listaStatus = paradas.map((p) => ({
-          cliente_id: p.cliente_id,
-          cliente_nome: p.cliente?.fantasia ?? '',
-          bairro: p.cliente?.bairro ?? null,
-          ordem: p.ordem,
-          status: (visitasMap.get(p.cliente_id) ?? 'pendente') as StatusVisita,
-        }))
+        const listaStatus = paradas.map((p) => {
+          const v = visitaPorCliente.get(p.cliente_id)
+          return {
+            cliente_id: p.cliente_id,
+            cliente_nome: p.cliente?.fantasia ?? '',
+            bairro: p.cliente?.bairro ?? null,
+            ordem: p.ordem,
+            status: (v?.status ?? 'pendente') as StatusVisita,
+            visita_id: v?.id ?? null,
+          }
+        })
         execucoesAtivas.push({
           id: ativa.id,
           nome: r.nome,
@@ -262,7 +268,11 @@ export default function Dashboard() {
                   {exec.proximas.map((p, idx) => (
                     <Link
                       key={p.cliente_id}
-                      to={`/rotas/execucao/${exec.id}/visita/${p.cliente_id}`}
+                      to={
+                        p.visita_id
+                          ? `/rotas/execucao/${exec.id}/visita/${p.cliente_id}/${p.visita_id}/editar`
+                          : `/rotas/execucao/${exec.id}/visita/${p.cliente_id}`
+                      }
                       className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 first:border-t-0 active:bg-gray-50"
                     >
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-50 text-xs font-bold text-primary-700">
