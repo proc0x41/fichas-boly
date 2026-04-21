@@ -16,6 +16,7 @@ const emptyForm = {
   numero: '',
   bairro: '',
   cidade: '',
+  estado: '',
   cep: '',
   telefone: '',
   email: '',
@@ -54,6 +55,7 @@ export default function ClienteForm() {
               numero: data.numero ?? '',
               bairro: data.bairro ?? '',
               cidade: data.cidade ?? '',
+              estado: data.estado ?? '',
               cep: data.cep ? maskCEP(data.cep) : '',
               telefone: data.telefone ? maskTelefone(data.telefone) : '',
               email: data.email ?? '',
@@ -111,6 +113,7 @@ export default function ClienteForm() {
       numero: form.numero || null,
       bairro: form.bairro || null,
       cidade: form.cidade || null,
+      estado: form.estado.trim().toUpperCase().slice(0, 2) || null,
       cep: cepRaw || null,
       telefone: telRaw || null,
       email: form.email || null,
@@ -191,8 +194,24 @@ export default function ClienteForm() {
           <Field label="Bairro" value={form.bairro} onChange={(v) => set('bairro', v)} className="col-span-2" />
         </div>
 
+        <div className="grid grid-cols-3 gap-3">
+          <Field
+            label="Cidade"
+            value={form.cidade}
+            onChange={(v) => set('cidade', v)}
+            autoComplete="address-level2"
+            className="col-span-2"
+          />
+          <Field
+            label="UF"
+            value={form.estado}
+            onChange={(v) => set('estado', v.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase())}
+            placeholder="SP"
+            maxLength={2}
+          />
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Cidade" value={form.cidade} onChange={(v) => set('cidade', v)} autoComplete="address-level2" />
           <Field
             label="CEP"
             value={form.cep}

@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { ProgressBar } from '../../components/ProgressBar'
+import { PaginationBar } from '../../components/PaginationBar'
 import { ArrowLeft, Loader2 } from 'lucide-react'
+
+const PAGE_SIZE = 20
 
 interface RotaAdmin {
   id: string
@@ -17,23 +20,32 @@ interface RotaAdmin {
 export default function AdminRotas() {
   const navigate = useNavigate()
   const [rotas, setRotas] = useState<RotaAdmin[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadRotas()
-  }, [])
+  const loadRotas = useCallback(async () => {
+    setLoading(true)
+    const from = (page - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+    const [{ data, count, error }, { data: perfisRows }] = await Promise.all([
+      supabase
+        .from('rotas')
+        .select(
+          'id, nome, vendedor_id, paradas:rota_clientes(id), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(status))',
+          { count: 'exact' },
+        )
+        .eq('ativo', true)
+        .order('criado_em', { ascending: false })
+        .range(from, to),
+      supabase.from('perfis').select('user_id, nome').in('role', ['vendedor', 'admin']),
+    ])
 
-  const loadRotas = async () => {
-    const { data } = await supabase
-      .from('rotas')
-      .select(
-        '*, vendedor:perfis!rotas_vendedor_id_fkey(nome), paradas:rota_clientes(id), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(status))',
-      )
-      .eq('ativo', true)
-      .order('criado_em', { ascending: false })
-      .limit(100)
-
-    if (data) {
+    if (error) {
+      setRotas([])
+      setTotal(0)
+    } else if (data) {
+      const nomePorUser = new Map((perfisRows ?? []).map((p) => [p.user_id as string, p.nome as string]))
       setRotas(
         data.map((r: Record<string, unknown>) => {
           const paradas = (r.paradas as { id: string }[]) ?? []
@@ -52,7 +64,7 @@ export default function AdminRotas() {
           return {
             id: r.id as string,
             nome: r.nome as string,
-            vendedor: r.vendedor as { nome: string } | null,
+            vendedor: { nome: nomePorUser.get(r.vendedor_id as string) ?? '—' },
             total_clientes: paradas.length,
             execucoes_ativas: ativas,
             ultima_execucao: ultima?.iniciada_em ?? null,
@@ -62,9 +74,17 @@ export default function AdminRotas() {
           }
         }),
       )
+      setTotal(count ?? 0)
+      if (data.length === 0 && page > 1) {
+        setPage((p) => Math.max(1, p - 1))
+      }
     }
     setLoading(false)
-  }
+  }, [page])
+
+  useEffect(() => {
+    void loadRotas()
+  }, [loadRotas])
 
   return (
     <div className="px-4 pt-4">
@@ -104,6 +124,7 @@ export default function AdminRotas() {
               )}
             </div>
           ))}
+          <PaginationBar page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
         </div>
       )}
     </div>

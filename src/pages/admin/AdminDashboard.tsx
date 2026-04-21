@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { Users, ClipboardList, Map, Loader2 } from 'lucide-react'
+import { Users, ClipboardList, Map, Package, Loader2 } from 'lucide-react'
 
 interface Counts {
   vendedores: number
   clientes: number
   rotas: number
+  produtos: number
 }
 
 export default function AdminDashboard() {
-  const [counts, setCounts] = useState<Counts>({ vendedores: 0, clientes: 0, rotas: 0 })
+  const [counts, setCounts] = useState<Counts>({ vendedores: 0, clientes: 0, rotas: 0, produtos: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -18,11 +19,13 @@ export default function AdminDashboard() {
       supabase.from('perfis').select('id', { count: 'exact', head: true }).eq('role', 'vendedor'),
       supabase.from('clientes').select('id', { count: 'exact', head: true }),
       supabase.from('rotas').select('id', { count: 'exact', head: true }),
-    ]).then(([v, c, r]) => {
+      supabase.from('produtos').select('id', { count: 'exact', head: true }),
+    ]).then(([v, c, r, p]) => {
       setCounts({
         vendedores: v.count ?? 0,
         clientes: c.count ?? 0,
         rotas: r.count ?? 0,
+        produtos: p.error ? 0 : (p.count ?? 0),
       })
       setLoading(false)
     })
@@ -32,6 +35,7 @@ export default function AdminDashboard() {
     { label: 'Vendedores', count: counts.vendedores, icon: Users, to: '/admin/vendedores', color: 'bg-blue-100 text-blue-600' },
     { label: 'Clientes', count: counts.clientes, icon: ClipboardList, to: '/admin/clientes', color: 'bg-green-100 text-green-600' },
     { label: 'Rotas', count: counts.rotas, icon: Map, to: '/admin/rotas', color: 'bg-purple-100 text-purple-600' },
+    { label: 'Produtos', count: counts.produtos, icon: Package, to: '/admin/produtos', color: 'bg-amber-100 text-amber-700' },
   ]
 
   return (

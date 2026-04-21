@@ -4,45 +4,66 @@ import { supabase } from '../lib/supabase'
 import { SearchInput } from '../components/SearchInput'
 import { ClienteCard } from '../components/ClienteCard'
 import { EmptyState } from '../components/EmptyState'
+import { PaginationBar } from '../components/PaginationBar'
 import { Plus, Users, Loader2 } from 'lucide-react'
 import type { Cliente } from '../types'
+
+const PAGE_SIZE = 25
 
 export default function Clientes() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
-  const loadClientes = useCallback(async (query: string) => {
+  useEffect(() => {
+    setPage(1)
+  }, [search])
+
+  const loadClientes = useCallback(async () => {
     setLoading(true)
+    const from = (page - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
     let q = supabase
       .from('clientes')
-      .select('*, ultima_visita:visitas(data_visita)')
+      .select('*, ultima_visita:visitas(data_visita)', { count: 'exact' })
       .eq('ativo', true)
       .order('fantasia')
+      .range(from, to)
 
-    if (query) {
+    if (search.trim()) {
+      const query = search.trim()
       q = q.or(`fantasia.ilike.%${query}%,cnpj.ilike.%${query}%,bairro.ilike.%${query}%`)
     }
 
-    const { data } = await q.limit(100)
+    const { data, count, error } = await q
 
-    if (data) {
+    if (error) {
+      setClientes([])
+      setTotal(0)
+    } else if (data) {
       setClientes(
         data.map((c: Record<string, unknown>) => {
           const visitas = c.ultima_visita as { data_visita: string }[] | null
-          const ultima = visitas && visitas.length > 0
-            ? visitas.sort((a, b) => b.data_visita.localeCompare(a.data_visita))[0].data_visita
-            : null
+          const ultima =
+            visitas && visitas.length > 0
+              ? visitas.sort((a, b) => b.data_visita.localeCompare(a.data_visita))[0].data_visita
+              : null
           return { ...c, ultima_visita: ultima } as Cliente
         }),
       )
+      setTotal(count ?? 0)
+      if (data.length === 0 && page > 1) {
+        setPage((p) => Math.max(1, p - 1))
+      }
     }
     setLoading(false)
-  }, [])
+  }, [search, page])
 
   useEffect(() => {
-    loadClientes(search)
-  }, [search, loadClientes])
+    void loadClientes()
+  }, [loadClientes])
 
   return (
     <div className="px-4 pt-4">
@@ -68,9 +89,12 @@ export default function Clientes() {
             description={search ? 'Tente outro termo de busca.' : 'Cadastre seu primeiro cliente.'}
           />
         ) : (
-          clientes.map((c) => (
-            <ClienteCard key={c.id} cliente={c} linkTo={`/clientes/${c.id}`} />
-          ))
+          <>
+            {clientes.map((c) => (
+              <ClienteCard key={c.id} cliente={c} linkTo={`/clientes/${c.id}`} />
+            ))}
+            <PaginationBar page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+          </>
         )}
       </div>
 

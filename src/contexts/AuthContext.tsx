@@ -38,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ...p,
         ciclo_dias: p.ciclo_dias ?? 7,
         lista_rodada_desde: p.lista_rodada_desde ?? null,
+        telefone: p.telefone ?? null,
       })
     } catch {
       setPerfil(null)

@@ -1,37 +1,76 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
+import { PaginationBar } from '../components/PaginationBar'
 import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
 import type { Cliente, Visita, VisitaCodigo, StatusVisita } from '../types'
 
 type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
 
+const VISITAS_PAGE_SIZE = 15
+
 export default function ClienteDetalhe() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [cliente, setCliente] = useState<Cliente | null>(null)
   const [visitas, setVisitas] = useState<VisitaComCodigos[]>([])
+  const [visitasTotal, setVisitasTotal] = useState(0)
+  const [visitasPage, setVisitasPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const lastClienteIdRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
     if (!id) return
-    Promise.all([
-      supabase.from('clientes').select('*').eq('id', id).single(),
-      supabase
-        .from('visitas')
-        .select('*, codigos:visita_codigos(*)')
-        .eq('cliente_id', id)
-        .order('data_visita', { ascending: false })
-        .limit(20),
-    ]).then(([cRes, vRes]) => {
-      if (cRes.data) setCliente(cRes.data as Cliente)
-      if (vRes.data) setVisitas(vRes.data as VisitaComCodigos[])
-      setLoading(false)
-    })
-  }, [id])
+    const clienteMudou = lastClienteIdRef.current !== id
+    lastClienteIdRef.current = id
+    if (clienteMudou && visitasPage !== 1) {
+      setVisitasPage(1)
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+    supabase
+      .from('clientes')
+      .select('*')
+      .eq('id', id)
+      .single()
+      .then(async ({ data, error }) => {
+        if (cancelled) return
+        if (error || !data) {
+          setCliente(null)
+          setVisitas([])
+          setVisitasTotal(0)
+          setLoading(false)
+          return
+        }
+        setCliente(data as Cliente)
+        const page = clienteMudou ? 1 : visitasPage
+        const from = (page - 1) * VISITAS_PAGE_SIZE
+        const to = from + VISITAS_PAGE_SIZE - 1
+        const vRes = await supabase
+          .from('visitas')
+          .select('*, codigos:visita_codigos(*)', { count: 'exact' })
+          .eq('cliente_id', id)
+          .order('data_visita', { ascending: false })
+          .range(from, to)
+        if (cancelled) return
+        if (vRes.data) {
+          setVisitas(vRes.data as VisitaComCodigos[])
+          setVisitasTotal(vRes.count ?? 0)
+          if (vRes.data.length === 0 && page > 1) {
+            setVisitasPage((p) => Math.max(1, p - 1))
+          }
+        }
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, visitasPage])
 
   if (loading) {
     return (
@@ -60,6 +99,7 @@ export default function ClienteDetalhe() {
         cliente.numero,
         cliente.bairro,
         cliente.cidade,
+        cliente.estado,
         cliente.cep ? maskCEP(cliente.cep) : null,
       ].filter(Boolean).join(', '),
     },
@@ -167,6 +207,12 @@ export default function ClienteDetalhe() {
               )}
             </div>
           ))}
+          <PaginationBar
+            page={visitasPage}
+            pageSize={VISITAS_PAGE_SIZE}
+            total={visitasTotal}
+            onPageChange={setVisitasPage}
+          />
         </div>
       )}
 

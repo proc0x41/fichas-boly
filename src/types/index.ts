@@ -8,7 +8,18 @@ export interface Perfil {
   ciclo_dias: number
   /** Se definido, a checklist só considera conclusões com `finalizada_em` depois deste instante (nova rodada). */
   lista_rodada_desde: string | null
+  telefone: string | null
   criado_em: string
+}
+
+export interface Produto {
+  id: string
+  codigo: string
+  descricao: string
+  preco_tabela: number
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
 }
 
 export interface Cliente {
@@ -22,6 +33,7 @@ export interface Cliente {
   numero: string | null
   bairro: string | null
   cidade: string | null
+  estado: string | null
   cep: string | null
   telefone: string | null
   email: string | null
@@ -48,6 +60,10 @@ export interface Visita {
   observacao: string | null
   condicoes_pagamento: string | null
   rota_execucao_id: string | null
+  numero_pedido?: number
+  valor_frete?: number
+  /** Desconto único do pedido em % sobre preço de tabela (0–100). */
+  desconto_percent?: number
   criado_em: string
   cliente?: Cliente
   codigos?: VisitaCodigo[]

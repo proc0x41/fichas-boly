@@ -13,6 +13,7 @@ CREATE TABLE perfis (
   ativo boolean DEFAULT true NOT NULL,
   ciclo_dias int NOT NULL DEFAULT 7 CHECK (ciclo_dias BETWEEN 1 AND 60),
   lista_rodada_desde timestamptz,
+  telefone text CHECK (telefone IS NULL OR char_length(telefone) <= 30),
   criado_em timestamptz DEFAULT now() NOT NULL
 );
 
@@ -31,6 +32,7 @@ CREATE TABLE clientes (
   bairro text CHECK (char_length(bairro) <= 100),
   cidade text CHECK (char_length(cidade) <= 100),
   cep text CHECK (char_length(cep) <= 10),
+  estado text CHECK (estado IS NULL OR char_length(estado) <= 2),
   telefone text CHECK (char_length(telefone) <= 20),
   email text CHECK (char_length(email) <= 200),
   comprador text CHECK (char_length(comprador) <= 200),
@@ -58,6 +60,9 @@ CREATE TABLE visitas (
   observacao text CHECK (char_length(observacao) <= 2000),
   condicoes_pagamento text CHECK (char_length(condicoes_pagamento) <= 500),
   rota_execucao_id uuid, -- FK adicionada após criar rota_execucoes
+  numero_pedido int NOT NULL,
+  valor_frete numeric(14, 2) NOT NULL DEFAULT 0 CHECK (valor_frete >= 0),
+  desconto_percent numeric(5, 2) NOT NULL DEFAULT 0 CHECK (desconto_percent >= 0 AND desconto_percent <= 100),
   criado_em timestamptz DEFAULT now() NOT NULL
 );
 
@@ -134,6 +139,80 @@ CREATE INDEX idx_rota_execucoes_vendedor_ativa
 ALTER TABLE visitas
   ADD CONSTRAINT visitas_rota_execucao_id_fkey
   FOREIGN KEY (rota_execucao_id) REFERENCES rota_execucoes ON DELETE SET NULL;
+
+-- Sequência de número de pedido por vendedor
+CREATE TABLE pedido_sequencia_vendedor (
+  vendedor_id uuid PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+  ultimo_numero int NOT NULL DEFAULT 0 CHECK (ultimo_numero >= 0)
+);
+
+ALTER TABLE pedido_sequencia_vendedor ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION proximo_numero_pedido()
+RETURNS int
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  vid uuid := auth.uid();
+  novo int;
+BEGIN
+  IF vid IS NULL THEN
+    RAISE EXCEPTION 'Não autenticado';
+  END IF;
+  INSERT INTO pedido_sequencia_vendedor (vendedor_id, ultimo_numero)
+  VALUES (vid, 1)
+  ON CONFLICT (vendedor_id) DO UPDATE
+    SET ultimo_numero = pedido_sequencia_vendedor.ultimo_numero + 1
+  RETURNING ultimo_numero INTO novo;
+  RETURN novo;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION proximo_numero_pedido() FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION visitas_assign_numero_pedido()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.numero_pedido IS NULL THEN
+    NEW.numero_pedido := proximo_numero_pedido();
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE TRIGGER trg_visitas_numero_pedido
+  BEFORE INSERT ON visitas
+  FOR EACH ROW
+  EXECUTE FUNCTION visitas_assign_numero_pedido();
+
+-- Catálogo de produtos (PDF / Mercos)
+CREATE TABLE produtos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  codigo text NOT NULL CHECK (char_length(codigo) >= 1 AND char_length(codigo) <= 20),
+  descricao text NOT NULL CHECK (char_length(descricao) <= 500),
+  preco_tabela numeric(14, 4) NOT NULL CHECK (preco_tabela >= 0),
+  ativo boolean NOT NULL DEFAULT true,
+  criado_em timestamptz NOT NULL DEFAULT now(),
+  atualizado_em timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX produtos_codigo_unique ON produtos (lower(trim(codigo)));
+CREATE INDEX idx_produtos_ativo ON produtos (ativo) WHERE ativo = true;
+
+CREATE OR REPLACE FUNCTION set_produtos_atualizado_em()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.atualizado_em := now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_produtos_atualizado
+  BEFORE UPDATE ON produtos
+  FOR EACH ROW
+  EXECUTE FUNCTION set_produtos_atualizado_em();
 
 -- 7. AUDIT LOG
 CREATE TABLE audit_log (
@@ -273,6 +352,18 @@ CREATE POLICY "vendedor_delete_codigos" ON visita_codigos FOR DELETE
   );
 
 CREATE POLICY "admin_all_codigos" ON visita_codigos FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- -------------------- PRODUTOS --------------------
+ALTER TABLE produtos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "vendedor_select_produtos" ON produtos FOR SELECT
+  TO authenticated
+  USING (ativo = true OR is_admin());
+
+CREATE POLICY "admin_all_produtos" ON produtos FOR ALL
   TO authenticated
   USING (is_admin())
   WITH CHECK (is_admin());

@@ -4,10 +4,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChipInput } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, RotateCcw, Send, Trash2, Loader2 } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { CodigoItem, StatusVisita } from '../types'
+import type { Cliente, CodigoItem, StatusVisita } from '../types'
 import { linkMercosWhatsApp, podeEnviarMercos } from '../lib/mercos'
+import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
+import { compartilharOuBaixarPdf } from '../lib/sharePedido'
 
 const statusOptions: { value: StatusVisita; label: string; color: string }[] = [
   { value: 'pendente', label: 'Pendente', color: 'bg-gray-100 text-gray-600 border-gray-300' },
@@ -15,6 +17,24 @@ const statusOptions: { value: StatusVisita; label: string; color: string }[] = [
   { value: 'nao_encontrado', label: 'Não encontrado', color: 'bg-red-50 text-red-700 border-red-400' },
   { value: 'reagendado', label: 'Reagendado', color: 'bg-yellow-50 text-yellow-700 border-yellow-400' },
 ]
+
+function parseMoneyInput(s: string): number {
+  const t = String(s).trim().replace(/\s/g, '').replace(',', '.')
+  const n = Number(t)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+/** Percentual 0–100; aceita vírgula ou ponto e símbolo %. */
+function parsePercentInput(s: string): number {
+  const t = String(s).trim().replace(/\s/g, '').replace('%', '').replace(',', '.')
+  const n = Number(t)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(100, n)
+}
+
+function normCodigo(c: string): string {
+  return c.trim().toLowerCase()
+}
 
 export default function VisitaForm() {
   const params = useParams()
@@ -24,19 +44,24 @@ export default function VisitaForm() {
   const isEditing = Boolean(visitaId)
 
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, perfil } = useAuth()
 
   const [dataVisita, setDataVisita] = useState(new Date().toISOString().split('T')[0])
   const [status, setStatus] = useState<StatusVisita>('visitado')
   const [observacao, setObservacao] = useState('')
   const [condicoesPagamento, setCondicoesPagamento] = useState('')
+  const [valorFrete, setValorFrete] = useState('0')
+  const [descontoPercent, setDescontoPercent] = useState('0')
+  const [numeroPedido, setNumeroPedido] = useState<number | null>(null)
   const [itens, setItens] = useState<CodigoItem[]>([])
   const [loading, setLoading] = useState(false)
   const [deletando, setDeletando] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
+  const [exportando, setExportando] = useState(false)
   const [clienteNome, setClienteNome] = useState('')
   const [clienteCNPJ, setClienteCNPJ] = useState<string | null>(null)
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
+  const [clienteTelefone, setClienteTelefone] = useState<string | null>(null)
 
   const precisaResolverVisitaNaRota = Boolean(execucaoId && clienteId && !visitaId)
   const [visitLookupDone, setVisitLookupDone] = useState(!precisaResolverVisitaNaRota)
@@ -76,7 +101,7 @@ export default function VisitaForm() {
     if (!clienteId) return
     supabase
       .from('clientes')
-      .select('fantasia, cnpj, comprador')
+      .select('fantasia, cnpj, comprador, telefone')
       .eq('id', clienteId)
       .single()
       .then(({ data }) => {
@@ -84,6 +109,7 @@ export default function VisitaForm() {
           setClienteNome(data.fantasia)
           setClienteCNPJ(data.cnpj ?? null)
           setClienteComprador(data.comprador?.trim() || null)
+          setClienteTelefone(data.telefone ?? null)
         }
       })
   }, [clienteId])
@@ -101,6 +127,14 @@ export default function VisitaForm() {
         setStatus(data.status as StatusVisita)
         setObservacao(data.observacao ?? '')
         setCondicoesPagamento(data.condicoes_pagamento ?? '')
+        const vf = (data as { valor_frete?: number }).valor_frete
+        const dp = (data as { desconto_percent?: number }).desconto_percent
+        const np = (data as { numero_pedido?: number }).numero_pedido
+        setValorFrete(String(vf ?? 0))
+        setDescontoPercent(
+          Number(dp ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2, useGrouping: false }),
+        )
+        setNumeroPedido(np ?? null)
         setItens(
           ((data.codigos as { codigo: string; quantidade: number }[]) ?? []).map((c) => ({
             codigo: c.codigo,
@@ -131,6 +165,102 @@ export default function VisitaForm() {
     }
   }
 
+  const montarPdfBlob = async (): Promise<Blob | null> => {
+    if (!visitaId) return null
+    const { data: row, error } = await supabase
+      .from('visitas')
+      .select(
+        `
+        *,
+        cliente:clientes(*),
+        codigos:visita_codigos(id, codigo, quantidade)
+      `,
+      )
+      .eq('id', visitaId)
+      .single()
+    if (error || !row) {
+      toast.error('Erro ao carregar visita para o PDF')
+      return null
+    }
+    const cliente = row.cliente as Cliente
+    const codigos = (row.codigos as { codigo: string; quantidade: number }[]) ?? []
+    const { data: produtosList } = await supabase.from('produtos').select('codigo, descricao, preco_tabela').eq('ativo', true)
+    const produtosPorCodigo = new Map<string, ProdutoCatalogo>()
+    for (const p of produtosList ?? []) {
+      produtosPorCodigo.set(normCodigo(p.codigo), {
+        codigo: p.codigo,
+        descricao: p.descricao,
+        preco_tabela: Number(p.preco_tabela),
+      })
+    }
+    const vf = parseMoneyInput(valorFrete)
+    const dp = parsePercentInput(descontoPercent)
+    const np = (row as { numero_pedido?: number }).numero_pedido ?? 0
+    return buildPedidoPdfBlob({
+      numeroPedido: np,
+      dataEmissao: new Date((row as { data_visita: string }).data_visita + 'T12:00:00'),
+      cliente,
+      visita: {
+        condicoes_pagamento: row.condicoes_pagamento as string | null,
+        observacao: row.observacao as string | null,
+        valor_frete: vf,
+        desconto_percent: dp,
+      },
+      codigos: codigos.map((c, i) => ({
+        id: `tmp-${i}`,
+        visita_id: visitaId,
+        codigo: c.codigo,
+        quantidade: c.quantidade,
+      })),
+      produtosPorCodigo,
+      vendedor: {
+        nome: perfil?.nome ?? 'Vendedor',
+        telefone: perfil?.telefone ?? null,
+      },
+    })
+  }
+
+  const handleExportarPdf = async () => {
+    if (!visitaId) {
+      toast.error('Salve a visita antes de gerar o PDF')
+      return
+    }
+    setExportando(true)
+    try {
+      const blob = await montarPdfBlob()
+      if (!blob) return
+      const np = numeroPedido ?? 0
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `Pedido_${np || visitaId.slice(0, 8)}.pdf`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success('PDF baixado')
+    } finally {
+      setExportando(false)
+    }
+  }
+
+  const handleEnviarCliente = async () => {
+    if (!visitaId) {
+      toast.error('Salve a visita antes de enviar')
+      return
+    }
+    setExportando(true)
+    try {
+      const blob = await montarPdfBlob()
+      if (!blob) return
+      const np = numeroPedido ?? 0
+      const r = await compartilharOuBaixarPdf(blob, np, clienteTelefone)
+      if (r === 'cancelled') return
+      if (r === 'shared') toast.success('Compartilhamento aberto')
+      else if (r === 'wa_opened') toast.success('PDF baixado — WhatsApp do cliente aberto; anexe o arquivo.')
+      else toast.success('PDF baixado')
+    } finally {
+      setExportando(false)
+    }
+  }
+
   const enviarMercos = () => {
     const pedido = {
       cnpj: clienteCNPJ,
@@ -146,10 +276,21 @@ export default function VisitaForm() {
     window.open(linkMercosWhatsApp(pedido), '_blank', 'noopener')
   }
 
+  const navigateParaEdicao = (id: string) => {
+    if (execucaoId && clienteId) {
+      navigate(`/rotas/execucao/${execucaoId}/visita/${clienteId}/${id}/editar`, { replace: true })
+    } else if (clienteId) {
+      navigate(`/clientes/${clienteId}/visita/${id}/editar`, { replace: true })
+    }
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!clienteId || !user) return
     setLoading(true)
+
+    const vf = parseMoneyInput(valorFrete)
+    const dp = parsePercentInput(descontoPercent)
 
     const payload = {
       cliente_id: clienteId,
@@ -159,6 +300,8 @@ export default function VisitaForm() {
       observacao: observacao.trim() || null,
       condicoes_pagamento: condicoesPagamento.trim() || null,
       rota_execucao_id: execucaoId,
+      valor_frete: vf,
+      desconto_percent: dp,
     }
 
     if (isEditing && visitaId) {
@@ -169,6 +312,8 @@ export default function VisitaForm() {
           status: payload.status,
           observacao: payload.observacao,
           condicoes_pagamento: payload.condicoes_pagamento,
+          valor_frete: vf,
+          desconto_percent: dp,
         })
         .eq('id', visitaId)
 
@@ -181,7 +326,7 @@ export default function VisitaForm() {
       await supabase.from('visita_codigos').delete().eq('visita_id', visitaId)
       if (itens.length > 0) {
         await supabase.from('visita_codigos').insert(
-          itens.map((i) => ({ visita_id: visitaId, codigo: i.codigo, quantidade: i.quantidade })),
+          itens.map((i) => ({ visita_id: visitaId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
         )
       }
       toast.success('Visita atualizada')
@@ -190,11 +335,7 @@ export default function VisitaForm() {
       return
     }
 
-    const { data: visita, error } = await supabase
-      .from('visitas')
-      .insert(payload)
-      .select('id')
-      .single()
+    const { data: visita, error } = await supabase.from('visitas').insert(payload).select('id, numero_pedido').single()
 
     if (error || !visita) {
       toast.error('Erro ao registrar visita')
@@ -202,9 +343,16 @@ export default function VisitaForm() {
       return
     }
 
+    const novoId = visita.id as string
+    const novoNumero = (visita as { numero_pedido?: number }).numero_pedido ?? null
+
     if (itens.length > 0) {
       const { error: codErr } = await supabase.from('visita_codigos').insert(
-        itens.map((i) => ({ visita_id: visita.id, codigo: i.codigo, quantidade: i.quantidade })),
+        itens.map((i) => ({
+          visita_id: novoId,
+          codigo: i.codigo.trim(),
+          quantidade: i.quantidade,
+        })),
       )
       if (codErr) {
         toast.error('Visita salva, mas erro ao salvar itens')
@@ -213,7 +361,8 @@ export default function VisitaForm() {
 
     toast.success('Visita registrada')
     setLoading(false)
-    navigate(-1)
+    setNumeroPedido(novoNumero)
+    navigateParaEdicao(novoId)
   }
 
   const deletarVisita = async () => {
@@ -259,6 +408,9 @@ export default function VisitaForm() {
             {isEditing ? 'Editar Visita' : 'Registrar Visita'}
           </h2>
           {clienteNome && <p className="text-sm text-gray-500">{clienteNome}</p>}
+          {numeroPedido != null && (
+            <p className="mt-1 text-xs font-medium text-primary-700">Pedido nº {numeroPedido}</p>
+          )}
         </div>
         {isEditing && (
           <button
@@ -346,10 +498,59 @@ export default function VisitaForm() {
           />
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Valor do frete (opcional)</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={valorFrete}
+              onChange={(e) => setValorFrete(e.target.value)}
+              placeholder="0"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Desconto % (opcional)</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={descontoPercent}
+              onChange={(e) => setDescontoPercent(e.target.value)}
+              placeholder="0"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
+            />
+            <p className="mt-0.5 text-[11px] text-gray-400">Sobre o preço de tabela em cada item (0 a 100).</p>
+          </div>
+        </div>
+
         <div className="space-y-2">
           <LoadingButton type="submit" loading={loading} className="w-full">
             {isEditing ? 'Salvar Alterações' : 'Salvar Visita'}
           </LoadingButton>
+
+          {isEditing && (
+            <>
+              <button
+                type="button"
+                disabled={exportando}
+                onClick={() => void handleExportarPdf()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 disabled:opacity-50"
+              >
+                {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Exportar PDF do pedido
+              </button>
+              <button
+                type="button"
+                disabled={exportando}
+                onClick={() => void handleEnviarCliente()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:opacity-50"
+              >
+                <Share2 className="h-4 w-4" />
+                Enviar ao cliente (PDF + WhatsApp)
+              </button>
+            </>
+          )}
 
           <button
             type="button"

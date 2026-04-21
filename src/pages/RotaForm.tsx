@@ -74,6 +74,7 @@ export default function RotaForm() {
   const [clientesSelecionados, setClientesSelecionados] = useState<ClienteItem[]>([])
   const [searchResults, setSearchResults] = useState<Cliente[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchHasMore, setSearchHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
 
@@ -111,10 +112,13 @@ export default function RotaForm() {
     })()
   }, [isEditing, rotaId])
 
+  const SEARCH_PAGE = 30
+
   const searchClientes = useCallback(async (query: string) => {
     setSearchQuery(query)
     if (!query.trim()) {
       setSearchResults([])
+      setSearchHasMore(false)
       return
     }
     const { data } = await supabase
@@ -122,10 +126,32 @@ export default function RotaForm() {
       .select('id, fantasia, bairro')
       .eq('ativo', true)
       .ilike('fantasia', `%${query}%`)
-      .limit(10)
+      .order('fantasia')
+      .range(0, SEARCH_PAGE - 1)
 
-    setSearchResults((data ?? []) as Cliente[])
+    const list = (data ?? []) as Cliente[]
+    setSearchResults(list)
+    setSearchHasMore(list.length === SEARCH_PAGE)
   }, [])
+
+  const loadMoreSearchClientes = async () => {
+    if (!searchQuery.trim()) return
+    const from = searchResults.length
+    const to = from + SEARCH_PAGE - 1
+    const { data } = await supabase
+      .from('clientes')
+      .select('id, fantasia, bairro')
+      .eq('ativo', true)
+      .ilike('fantasia', `%${searchQuery}%`)
+      .order('fantasia')
+      .range(from, to)
+    const next = (data ?? []) as Cliente[]
+    setSearchResults((prev) => {
+      const ids = new Set(prev.map((p) => p.id))
+      return [...prev, ...next.filter((c) => !ids.has(c.id))]
+    })
+    setSearchHasMore(next.length === SEARCH_PAGE)
+  }
 
   const addCliente = (c: Cliente) => {
     if (clientesSelecionados.some((s) => s.id === c.id)) return
@@ -296,6 +322,15 @@ export default function RotaForm() {
                   {c.bairro && <span className="ml-2 text-gray-400">— {c.bairro}</span>}
                 </button>
               ))}
+              {searchHasMore && (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreSearchClientes()}
+                  className="w-full border-t border-gray-100 px-3 py-2 text-center text-xs font-medium text-primary-700 hover:bg-primary-50"
+                >
+                  Carregar mais resultados
+                </button>
+              )}
             </div>
           )}
         </div>

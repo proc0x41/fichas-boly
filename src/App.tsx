@@ -21,6 +21,7 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminVendedores from './pages/admin/AdminVendedores'
 import AdminClientes from './pages/admin/AdminClientes'
 import AdminRotas from './pages/admin/AdminRotas'
+import AdminProdutos from './pages/admin/AdminProdutos'
 import { hasSupabaseEnv, supabaseEnvError } from './lib/supabase'
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
                 <Route path="/admin/vendedores" element={<AdminVendedores />} />
                 <Route path="/admin/clientes" element={<AdminClientes />} />
                 <Route path="/admin/rotas" element={<AdminRotas />} />
+                <Route path="/admin/produtos" element={<AdminProdutos />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

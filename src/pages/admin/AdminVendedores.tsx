@@ -1,14 +1,19 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, useCallback, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { LoadingButton } from '../../components/LoadingButton'
+import { PaginationBar } from '../../components/PaginationBar'
 import { ArrowLeft, Plus, UserCheck, UserX, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Perfil } from '../../types'
 
+const PAGE_SIZE = 15
+
 export default function AdminVendedores() {
   const navigate = useNavigate()
   const [vendedores, setVendedores] = useState<Perfil[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
@@ -16,20 +21,33 @@ export default function AdminVendedores() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
 
-  useEffect(() => {
-    loadVendedores()
-  }, [])
-
-  const loadVendedores = async () => {
-    const { data } = await supabase
+  const loadVendedores = useCallback(async () => {
+    setLoading(true)
+    const from = (page - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+    const { data, count, error } = await supabase
       .from('perfis')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('role', 'vendedor')
       .order('nome')
+      .range(from, to)
 
-    if (data) setVendedores(data as Perfil[])
+    if (error) {
+      setVendedores([])
+      setTotal(0)
+    } else if (data) {
+      setVendedores(data as Perfil[])
+      setTotal(count ?? 0)
+      if (data.length === 0 && page > 1) {
+        setPage((p) => Math.max(1, p - 1))
+      }
+    }
     setLoading(false)
-  }
+  }, [page])
+
+  useEffect(() => {
+    void loadVendedores()
+  }, [loadVendedores])
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault()
@@ -136,12 +154,29 @@ export default function AdminVendedores() {
               key={v.id}
               className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4"
             >
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="font-medium text-gray-900">{v.nome}</p>
                 <p className="text-xs text-gray-400">
                   {v.ativo ? 'Ativo' : 'Inativo'}
                   {v.must_change_password && ' • Senha pendente'}
                 </p>
+                <label className="mt-2 block text-[10px] font-medium uppercase text-gray-400">Telefone (PDF)</label>
+                <input
+                  type="text"
+                  defaultValue={v.telefone ?? ''}
+                  placeholder="Ex: (11) 99999-9999"
+                  onBlur={async (e) => {
+                    const t = e.target.value.trim() || null
+                    if (t === (v.telefone ?? null)) return
+                    const { error } = await supabase.from('perfis').update({ telefone: t }).eq('id', v.id)
+                    if (error) toast.error('Erro ao salvar telefone')
+                    else {
+                      toast.success('Telefone atualizado')
+                      loadVendedores()
+                    }
+                  }}
+                  className="mt-0.5 w-full max-w-xs rounded border border-gray-200 px-2 py-1 text-xs"
+                />
               </div>
               <button
                 onClick={() => toggleAtivo(v)}
@@ -152,6 +187,7 @@ export default function AdminVendedores() {
               </button>
             </div>
           ))}
+          <PaginationBar page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
         </div>
       )}
     </div>

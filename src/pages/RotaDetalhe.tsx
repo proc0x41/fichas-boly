@@ -51,8 +51,9 @@ export default function RotaDetalhe() {
         .from('rota_execucoes')
         .select('id, iniciada_em, finalizada_em, visitas(id, status)')
         .eq('rota_id', id)
+        .order('finalizada_em', { ascending: true, nullsFirst: true })
         .order('iniciada_em', { ascending: false })
-        .limit(20),
+        .limit(80),
     ])
 
     if (rota) setNome(rota.nome)
