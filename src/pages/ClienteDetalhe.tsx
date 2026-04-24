@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
-import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
 import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita } from '../types'
 
@@ -21,6 +22,7 @@ export default function ClienteDetalhe() {
   const [visitasTotal, setVisitasTotal] = useState(0)
   const [visitasPage, setVisitasPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [deletando, setDeletando] = useState(false)
   const lastClienteIdRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
@@ -95,6 +97,32 @@ export default function ClienteDetalhe() {
     )
   }
 
+  const deletarCliente = async () => {
+    if (!confirm('Excluir este cliente? Esta ação não pode ser desfeita.')) return
+    setDeletando(true)
+    const { error } = await supabase.from('clientes').delete().eq('id', id)
+    setDeletando(false)
+    if (error) {
+      toast.error('Erro ao excluir cliente')
+      return
+    }
+    toast.success('Cliente excluído')
+    navigate('/clientes')
+  }
+
+  const deletarCliente = async () => {
+    if (!confirm('Excluir este cliente? Esta ação não pode ser desfeita.')) return
+    setDeletando(true)
+    const { error } = await supabase.from('clientes').delete().eq('id', id)
+    setDeletando(false)
+    if (error) {
+      toast.error('Erro ao excluir cliente')
+      return
+    }
+    toast.success('Cliente excluído')
+    navigate('/clientes')
+  }
+
   const info = [
     { label: 'Razão Social', value: cliente.razao_social },
     { label: 'CNPJ', value: cliente.cnpj ? maskCNPJ(cliente.cnpj) : null },
@@ -124,6 +152,14 @@ export default function ClienteDetalhe() {
     },
   ]
 
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+      </div>
+    )
+  }
+
   return (
     <div className="px-4 pt-4 pb-24">
       <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
@@ -151,13 +187,24 @@ export default function ClienteDetalhe() {
             </span>
           )}
         </div>
-        <Link
-          to={`/clientes/${id}/editar`}
-          className="flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors active:bg-gray-200"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Editar
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            to={`/clientes/${id}/editar`}
+            className="flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors active:bg-gray-200"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Editar
+          </Link>
+          <button
+            type="button"
+            onClick={deletarCliente}
+            disabled={deletando}
+            className="flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 disabled:opacity-60"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Excluir
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 rounded-xl border border-gray-200 bg-white">
