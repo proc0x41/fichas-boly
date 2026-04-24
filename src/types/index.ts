@@ -64,7 +64,7 @@ export interface Cliente {
   contatos?: ClienteContato[]
 }
 
-export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado'
+export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado' | 'pedido'
 export type TipoVisita = 'pedido' | 'orcamento'
 
 export interface Visita {
