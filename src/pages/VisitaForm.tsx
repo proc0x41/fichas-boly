@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, useCallback, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { ChipInput } from '../components/ChipInput'
+import { ChipInput, type ProdutoPreview } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -63,6 +63,39 @@ export default function VisitaForm() {
   const [clienteCNPJ, setClienteCNPJ] = useState<string | null>(null)
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
   const [clienteTelefone, setClienteTelefone] = useState<string | null>(null)
+  const [catalogoProdutos, setCatalogoProdutos] = useState<Map<string, ProdutoPreview> | null>(null)
+
+  useEffect(() => {
+    supabase
+      .from('produtos')
+      .select('codigo, descricao, preco_tabela')
+      .eq('ativo', true)
+      .then(({ data }) => {
+        const map = new Map<string, ProdutoPreview>()
+        for (const p of data ?? []) {
+          map.set(normCodigo(p.codigo), { descricao: p.descricao, preco_tabela: Number(p.preco_tabela) })
+        }
+        setCatalogoProdutos(map)
+      })
+  }, [])
+
+  const lookupCodigo = useCallback(
+    async (codigo: string): Promise<ProdutoPreview | null> => {
+      if (!catalogoProdutos) return null
+      const norm = normCodigo(codigo)
+      // 1. correspondência exata
+      const exact = catalogoProdutos.get(norm)
+      if (exact) return exact
+      // 2. correspondência por sufixo (ex: "0094" encontra "ar0094")
+      for (const [key, prod] of catalogoProdutos) {
+        if (key.endsWith(norm) && key !== norm) {
+          return { ...prod, codigoCanonico: key.toUpperCase() }
+        }
+      }
+      return null
+    },
+    [catalogoProdutos],
+  )
 
   const precisaResolverVisitaNaRota = Boolean(execucaoId && clienteId && !visitaId)
   const [visitLookupDone, setVisitLookupDone] = useState(!precisaResolverVisitaNaRota)
@@ -512,7 +545,7 @@ export default function VisitaForm() {
               Reaproveitar última
             </button>
           </div>
-          <ChipInput itens={itens} onChange={setItens} />
+          <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} />
           <p className="mt-1 text-[11px] text-gray-400">
             Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
           </p>

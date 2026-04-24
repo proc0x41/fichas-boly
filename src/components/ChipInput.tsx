@@ -1,22 +1,62 @@
-import { useState, useRef, useId, type KeyboardEvent, type MouseEvent } from 'react'
-import { X, Plus } from 'lucide-react'
+import { useState, useRef, useId, useEffect, type KeyboardEvent, type MouseEvent } from 'react'
+import { X, Plus, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { CodigoItem } from '../types'
+
+export interface ProdutoPreview {
+  descricao: string
+  preco_tabela: number
+  /** Código canônico do catálogo (pode diferir do digitado, ex: digitou "0094" → canônico "AR0094") */
+  codigoCanonico?: string
+}
 
 interface Props {
   itens: CodigoItem[]
   onChange: (itens: CodigoItem[]) => void
+  onLookupCodigo?: (codigo: string) => Promise<ProdutoPreview | null>
   maxLength?: number
   maxItems?: number
 }
 
-export function ChipInput({ itens, onChange, maxLength = 20, maxItems = 200 }: Props) {
+export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, maxItems = 200 }: Props) {
   const [codigo, setCodigo] = useState('')
   const [quantidade, setQuantidade] = useState('')
+  const [preview, setPreview] = useState<ProdutoPreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewNaoEncontrado, setPreviewNaoEncontrado] = useState(false)
+  const [previewParaCodigo, setPreviewParaCodigo] = useState('')
   const codigoInputRef = useRef<HTMLInputElement>(null)
   const quantidadeInputRef = useRef<HTMLInputElement>(null)
   const codigoId = useId()
   const quantidadeId = useId()
+
+  useEffect(() => {
+    const norm = codigo.trim().toUpperCase()
+    if (!norm || !onLookupCodigo) {
+      setPreview(null)
+      setPreviewNaoEncontrado(false)
+      setPreviewLoading(false)
+      setPreviewParaCodigo('')
+      return
+    }
+    setPreviewLoading(true)
+    setPreview(null)
+    setPreviewNaoEncontrado(false)
+    const timer = setTimeout(() => {
+      void onLookupCodigo(norm).then((result) => {
+        setPreviewLoading(false)
+        setPreviewParaCodigo(norm)
+        if (result) {
+          setPreview(result)
+          setPreviewNaoEncontrado(false)
+        } else {
+          setPreview(null)
+          setPreviewNaoEncontrado(true)
+        }
+      })
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [codigo, onLookupCodigo])
 
   const adicionar = () => {
     const codigoLimpo = codigo.trim().toUpperCase()
@@ -52,18 +92,30 @@ export function ChipInput({ itens, onChange, maxLength = 20, maxItems = 200 }: P
       return
     }
 
-    const existenteIdx = itens.findIndex((i) => i.codigo === codigoLimpo)
+    // Se o lookup encontrou um código canônico diferente do digitado (ex: "0094" → "AR0094"), usa o canônico
+    const codigoFinal = (preview?.codigoCanonico ?? codigoLimpo)
+    const existenteIdx = itens.findIndex((i) => i.codigo === codigoFinal)
     if (existenteIdx >= 0) {
       const novos = itens.slice()
-      novos[existenteIdx] = { codigo: codigoLimpo, quantidade: novos[existenteIdx].quantidade + qtd }
+      novos[existenteIdx] = { codigo: codigoFinal, quantidade: novos[existenteIdx].quantidade + qtd }
       onChange(novos)
-      toast.success(`Quantidade somada: ${codigoLimpo} (+${qtd})`)
+      toast.error(`Código duplicado — quantidade de "${codigoFinal}" somada ao existente`, { duration: 4000 })
     } else {
-      onChange([...itens, { codigo: codigoLimpo, quantidade: qtd }])
+      if (onLookupCodigo && previewNaoEncontrado && previewParaCodigo === codigoLimpo) {
+        toast(`Código "${codigoLimpo}" não encontrado no catálogo — adicionado mesmo assim`, {
+          icon: '⚠️',
+          style: { background: '#fef9c3', color: '#713f12' },
+          duration: 4000,
+        })
+      }
+      onChange([...itens, { codigo: codigoFinal, quantidade: qtd }])
     }
 
     setCodigo('')
     setQuantidade('')
+    setPreview(null)
+    setPreviewNaoEncontrado(false)
+    setPreviewParaCodigo('')
     codigoInputRef.current?.focus()
   }
 
@@ -137,6 +189,43 @@ export function ChipInput({ itens, onChange, maxLength = 20, maxItems = 200 }: P
           <Plus className="h-4 w-4" />
         </button>
       </div>
+
+      {onLookupCodigo && codigo.trim() && (
+        <div
+          className={`mt-1.5 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+            previewLoading
+              ? 'border-gray-200 bg-gray-50 text-gray-400'
+              : preview
+                ? 'border-green-200 bg-green-50'
+                : previewNaoEncontrado
+                  ? 'border-red-200 bg-red-50'
+                  : 'border-gray-200 bg-gray-50 text-gray-400'
+          }`}
+        >
+          {previewLoading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+          {!previewLoading && preview && <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-600" />}
+          {!previewLoading && previewNaoEncontrado && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />}
+          <div className="min-w-0">
+            {previewLoading && <span>Buscando...</span>}
+            {!previewLoading && preview && (
+              <>
+                {preview.codigoCanonico && preview.codigoCanonico !== codigo.trim().toUpperCase() && (
+                  <p className="text-[11px] text-green-700 font-medium mb-0.5">
+                    Código: <span className="font-mono">{preview.codigoCanonico}</span>
+                  </p>
+                )}
+                <p className="font-semibold text-gray-800 truncate">{preview.descricao}</p>
+                <p className="text-gray-500">
+                  {Number(preview.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </p>
+              </>
+            )}
+            {!previewLoading && previewNaoEncontrado && (
+              <p className="text-red-600 font-medium">Código não encontrado no catálogo</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {itens.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2" role="list" aria-label="Itens do pedido">
