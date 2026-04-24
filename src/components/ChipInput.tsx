@@ -96,11 +96,9 @@ export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, max
     const codigoFinal = (preview?.codigoCanonico ?? codigoLimpo)
     const existenteIdx = itens.findIndex((i) => i.codigo === codigoFinal)
     if (existenteIdx >= 0) {
-      const novos = itens.slice()
-      novos[existenteIdx] = { codigo: codigoFinal, quantidade: novos[existenteIdx].quantidade + qtd }
-      onChange(novos)
-      toast.error(`Código duplicado — quantidade de "${codigoFinal}" somada ao existente`, { duration: 4000 })
-    } else {
+      toast.error(`"${codigoFinal}" já está no pedido`, { duration: 4000 })
+      return
+    }
       if (onLookupCodigo && previewNaoEncontrado && previewParaCodigo === codigoLimpo) {
         toast(`Código "${codigoLimpo}" não encontrado no catálogo — adicionado mesmo assim`, {
           icon: '⚠️',
@@ -109,7 +107,6 @@ export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, max
         })
       }
       onChange([...itens, { codigo: codigoFinal, quantidade: qtd }])
-    }
 
     setCodigo('')
     setQuantidade('')
@@ -190,42 +187,57 @@ export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, max
         </button>
       </div>
 
-      {onLookupCodigo && codigo.trim() && (
-        <div
-          className={`mt-1.5 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
-            previewLoading
-              ? 'border-gray-200 bg-gray-50 text-gray-400'
-              : preview
-                ? 'border-green-200 bg-green-50'
-                : previewNaoEncontrado
-                  ? 'border-red-200 bg-red-50'
-                  : 'border-gray-200 bg-gray-50 text-gray-400'
-          }`}
-        >
-          {previewLoading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-          {!previewLoading && preview && <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-600" />}
-          {!previewLoading && previewNaoEncontrado && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />}
-          <div className="min-w-0">
-            {previewLoading && <span>Buscando...</span>}
-            {!previewLoading && preview && (
-              <>
-                {preview.codigoCanonico && preview.codigoCanonico !== codigo.trim().toUpperCase() && (
-                  <p className="text-[11px] text-green-700 font-medium mb-0.5">
-                    Código: <span className="font-mono">{preview.codigoCanonico}</span>
+      {onLookupCodigo && codigo.trim() && (() => {
+        const codigoFinalPreview = preview?.codigoCanonico ?? codigo.trim().toUpperCase()
+        const isDuplicado = itens.some((i) => i.codigo === codigoFinalPreview)
+        return (
+          <div
+            className={`mt-1.5 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+              previewLoading
+                ? 'border-gray-200 bg-gray-50 text-gray-400'
+                : isDuplicado
+                  ? 'border-amber-300 bg-amber-50'
+                  : preview
+                    ? 'border-green-200 bg-green-50'
+                    : previewNaoEncontrado
+                      ? 'border-red-200 bg-red-50'
+                      : 'border-gray-200 bg-gray-50 text-gray-400'
+            }`}
+          >
+            {previewLoading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+            {!previewLoading && isDuplicado && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+            {!previewLoading && !isDuplicado && preview && <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-600" />}
+            {!previewLoading && !isDuplicado && previewNaoEncontrado && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />}
+            <div className="min-w-0">
+              {previewLoading && <span>Buscando...</span>}
+              {!previewLoading && isDuplicado && (
+                <>
+                  {preview && (
+                    <p className="font-semibold text-gray-800 truncate">{preview.descricao}</p>
+                  )}
+                  <p className="text-amber-700 font-medium">Já adicionado ao pedido</p>
+                </>
+              )}
+              {!previewLoading && !isDuplicado && preview && (
+                <>
+                  {preview.codigoCanonico && preview.codigoCanonico !== codigo.trim().toUpperCase() && (
+                    <p className="text-[11px] text-green-700 font-medium mb-0.5">
+                      Código: <span className="font-mono">{preview.codigoCanonico}</span>
+                    </p>
+                  )}
+                  <p className="font-semibold text-gray-800 truncate">{preview.descricao}</p>
+                  <p className="text-gray-500">
+                    {Number(preview.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </p>
-                )}
-                <p className="font-semibold text-gray-800 truncate">{preview.descricao}</p>
-                <p className="text-gray-500">
-                  {Number(preview.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </p>
-              </>
-            )}
-            {!previewLoading && previewNaoEncontrado && (
-              <p className="text-red-600 font-medium">Código não encontrado no catálogo</p>
-            )}
+                </>
+              )}
+              {!previewLoading && !isDuplicado && previewNaoEncontrado && (
+                <p className="text-red-600 font-medium">Código não encontrado no catálogo</p>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {itens.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2" role="list" aria-label="Itens do pedido">

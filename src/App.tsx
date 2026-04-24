@@ -11,6 +11,7 @@ import TrocarSenha from './pages/TrocarSenha'
 import Dashboard from './pages/Dashboard'
 import Clientes from './pages/Clientes'
 import ClienteForm from './pages/ClienteForm'
+import Pedidos from './pages/Pedidos'
 import ClienteDetalhe from './pages/ClienteDetalhe'
 import VisitaForm from './pages/VisitaForm'
 import RotasList from './pages/Rotas'
@@ -57,6 +58,7 @@ export default function App() {
 
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/pedidos" element={<Pedidos />} />
               <Route path="/clientes" element={<Clientes />} />
               <Route path="/clientes/novo" element={<ClienteForm />} />
               <Route path="/clientes/:id" element={<ClienteDetalhe />} />

@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useInactivityTimeout } from '../hooks/useInactivityTimeout'
-import { Home, Users, Map, Shield, LogOut } from 'lucide-react'
+import { Home, Users, Map, Shield, LogOut, ShoppingBag } from 'lucide-react'
 import logo from '../assets/logo.jpeg'
 
 export function Layout() {
@@ -17,6 +17,7 @@ export function Layout() {
 
   const navItems = [
     { to: '/', icon: Home, label: 'Home' },
+    { to: '/pedidos', icon: ShoppingBag, label: 'Pedidos' },
     { to: '/clientes', icon: Users, label: 'Clientes' },
     { to: '/rotas', icon: Map, label: 'Rotas' },
   ]
