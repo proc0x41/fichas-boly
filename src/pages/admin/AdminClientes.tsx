@@ -187,29 +187,35 @@ export default function AdminClientes() {
       }
       const validas: RowParsed[] = []
       let parseErr = 0
+      const erroLinhas: string[] = []
 
       for (const row of rows) {
         const fantasia = getCell(row, 'fantasia', 'nome fantasia', 'nome_fantasia', 'fant')
         if (!fantasia) continue
 
         const cnpjRaw = unmask(getCell(row, 'cnpj', 'cnpj cliente'))
-        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { parseErr++; continue }
-        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { parseErr++; continue }
+        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { parseErr++; erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
+        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { parseErr++; erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
 
         const estadoRaw = getCell(row, 'estado', 'uf').toUpperCase().slice(0, 2) || null
         const cepRaw = unmask(getCell(row, 'cep'))
         const ieRaw = unmask(getCell(row, 'inscricao_estadual', 'ie', 'inscrição estadual', 'inscricao estadual'))
 
+        // Suporta múltiplos valores separados por vírgula ou ponto-e-vírgula numa célula,
+        // além das colunas telefone2/telefone3 separadas.
+        const splitMultiple = (v: string) =>
+          v.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+
         const telefones = [
-          getCell(row, 'telefone', 'fone', 'tel'),
-          getCell(row, 'telefone2', 'fone2', 'tel2'),
-          getCell(row, 'telefone3', 'fone3', 'tel3'),
+          ...splitMultiple(getCell(row, 'telefone', 'fone', 'tel', 'telefones')),
+          ...splitMultiple(getCell(row, 'telefone2', 'fone2', 'tel2')),
+          ...splitMultiple(getCell(row, 'telefone3', 'fone3', 'tel3')),
         ].map((v) => unmask(v)).filter((v) => v.length >= 10)
 
         const emails = [
-          getCell(row, 'email', 'e-mail'),
-          getCell(row, 'email2', 'e-mail2'),
-          getCell(row, 'email3', 'e-mail3'),
+          ...splitMultiple(getCell(row, 'email', 'e-mail', 'emails', 'e-mails')),
+          ...splitMultiple(getCell(row, 'email2', 'e-mail2')),
+          ...splitMultiple(getCell(row, 'email3', 'e-mail3')),
         ].map((v) => v.trim()).filter(Boolean)
 
         validas.push({
@@ -301,6 +307,7 @@ export default function AdminClientes() {
           .select('id, cnpj, fantasia')
         if (error) {
           err += novos.length
+          novos.forEach((r) => erroLinhas.push(r.fantasia))
         } else {
           ok += novos.length
           // Insere contatos dos novos em paralelo
@@ -350,15 +357,21 @@ export default function AdminClientes() {
                 display_parede: p.display_parede,
               })
               .eq('id', r.id)
-            if (error) { err++; return }
+            if (error) { err++; erroLinhas.push(r.fantasia); return }
             ok++
             await upsertContatos(r.id, r.telefones, r.emails, clientesComContatos)
           }),
         )
       }
 
-      toast.success(`Importação: ${ok} linhas OK${err ? `, ${err} ignoradas` : ''}`)
-      setPage(1)
+      if (erroLinhas.length > 0) {
+        console.warn('Clientes não importados:', erroLinhas)
+        const nomes = erroLinhas.slice(0, 5).join(', ') + (erroLinhas.length > 5 ? ` e mais ${erroLinhas.length - 5}...` : '')
+        toast.error(`${erroLinhas.length} não importado(s): ${nomes}`, { duration: 8000 })
+      }
+      if (ok > 0) {
+        toast.success(`${ok} cliente(s) importado(s) com sucesso`)
+      }      setPage(1)
       void load()
     } catch {
       toast.error('Arquivo inválido')

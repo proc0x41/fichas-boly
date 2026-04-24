@@ -1,0 +1,4 @@
+vendedor_id,fantasia,razao_social,cnpj,inscricao_estadual,endereco,numero,bairro,cidade,estado,cep,telefone,email,comprador,dia_compras,is_cliente,display_chao,display_balcao,display_parede,ativo,cliente_desde
+00000000-0000-0000-0000-000000000000,Mercado Central,Central Comércio LTDA,12345678000190,123456789,Rua das Flores,120,Centro,São Paulo,SP,01310100,(11) 98888-7777,contato@central.com.br,Maria Silva,Segunda,true,2,1,3,true,2024-01-15
+00000000-0000-0000-0000-000000000000,Padaria Pão Nosso,,,, Av. Brasil,500,Jardim Paulista,São Paulo,SP,01415000,(11) 97777-6666,,João,,true,0,0,0,true,
+00000000-0000-0000-0000-000000000000,Prospect Exemplo,Prospect LTDA,98765432000100,,Rua Nova,10,Vila Madalena,São Paulo,SP,05432000,(11) 96666-5555,prospect@email.com,Ana,Sexta,false,0,0,0,true,

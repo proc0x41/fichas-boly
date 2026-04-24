@@ -1,12 +1,12 @@
-import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
-import { LoadingButton } from '../../components/LoadingButton'
-import { ArrowLeft, Loader2, Trash2, Upload, Download, Pencil, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Trash2, Upload, Download, Pencil, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Produto } from '../../types'
 import { PaginationBar } from '../../components/PaginationBar'
+import { SearchInput } from '../../components/SearchInput'
 import { fixUtf8MojibakeIfNeeded } from '../../lib/fixUtf8Mojibake'
 
 function normCodigo(c: string): string {
@@ -43,31 +43,27 @@ export default function AdminProdutos() {
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [busca, setBusca] = useState('')
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const [codigo, setCodigo] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [preco, setPreco] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  const [editandoId, setEditandoId] = useState<string | null>(null)
-  const [editCodigo, setEditCodigo] = useState('')
-  const [editDescricao, setEditDescricao] = useState('')
-  const [editPreco, setEditPreco] = useState('')
-  const [editAtivo, setEditAtivo] = useState(true)
-  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  useEffect(() => {
+    setPage(1)
+  }, [busca])
 
   const load = useCallback(async () => {
     setLoading(true)
     const from = (page - 1) * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
-    const { data, error, count } = await supabase
+    let query = supabase
       .from('produtos')
       .select('*', { count: 'exact' })
       .order('codigo', { ascending: true })
-      .range(from, to)
+    if (busca.trim()) {
+      query = query.or(`codigo.ilike.%${busca.trim()}%,descricao.ilike.%${busca.trim()}%`)
+    }
+    const { data, error, count } = await query.range(from, to)
     if (error) {
       toast.error('Erro ao carregar produtos')
       setProdutos([])
@@ -85,96 +81,11 @@ export default function AdminProdutos() {
       }
     }
     setLoading(false)
-  }, [page])
+  }, [page, busca])
 
   useEffect(() => {
     void load()
   }, [load])
-
-  const salvarNovo = async (e: FormEvent) => {
-    e.preventDefault()
-    const c = normCodigo(codigo)
-    if (!c) {
-      toast.error('Código obrigatório')
-      return
-    }
-    if (!descricao.trim()) {
-      toast.error('Descrição obrigatória')
-      return
-    }
-    const p = parsePreco(preco)
-    if (p === null) {
-      toast.error('Preço inválido')
-      return
-    }
-    setSaving(true)
-    const descNorm = fixUtf8MojibakeIfNeeded(descricao.trim())
-    const { error } = await supabase.from('produtos').insert({
-      codigo: c,
-      descricao: descNorm,
-      preco_tabela: p,
-      ativo: true,
-    })
-    setSaving(false)
-    if (error) {
-      if (error.code === '23505') toast.error('Código já cadastrado')
-      else toast.error('Erro ao salvar')
-      return
-    }
-    toast.success('Produto cadastrado')
-    setCodigo('')
-    setDescricao('')
-    setPreco('')
-    load()
-  }
-
-  const iniciarEdicao = (p: Produto) => {
-    setEditandoId(p.id)
-    setEditCodigo(p.codigo)
-    setEditDescricao(p.descricao)
-    setEditPreco(String(p.preco_tabela).replace('.', ','))
-    setEditAtivo(p.ativo)
-  }
-
-  const cancelarEdicao = () => {
-    setEditandoId(null)
-    setEditCodigo('')
-    setEditDescricao('')
-    setEditPreco('')
-    setEditAtivo(true)
-  }
-
-  const salvarEdicao = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!editandoId) return
-    if (!editDescricao.trim()) {
-      toast.error('Descrição obrigatória')
-      return
-    }
-    const pr = parsePreco(editPreco)
-    if (pr === null) {
-      toast.error('Preço inválido')
-      return
-    }
-    setSalvandoEdicao(true)
-    const descNorm = fixUtf8MojibakeIfNeeded(editDescricao.trim())
-    const { error } = await supabase
-      .from('produtos')
-      .update({
-        descricao: descNorm,
-        preco_tabela: pr,
-        ativo: editAtivo,
-      })
-      .eq('id', editandoId)
-    setSalvandoEdicao(false)
-    if (error) {
-      toast.error(error.message || 'Erro ao atualizar produto')
-      return
-    }
-    toast.success('Produto atualizado')
-    cancelarEdicao()
-    load()
-  }
 
   const excluir = async (id: string) => {
     if (!confirm('Excluir este produto?')) return
@@ -253,14 +164,25 @@ export default function AdminProdutos() {
         Voltar
       </button>
 
-      <h2 className="mb-2 text-lg font-bold text-gray-900">Produtos (catálogo)</h2>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="text-lg font-bold text-gray-900">Produtos (catálogo)</h2>
+        <button
+          type="button"
+          onClick={() => navigate('/admin/produtos/novo')}
+          className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white"
+        >
+          <Plus className="h-4 w-4" />
+          Novo produto
+        </button>
+      </div>
+
       <p className="mb-4 text-xs text-gray-500">
         Usados no PDF do pedido. Na primeira linha use os cabeçalhos: <strong>codigo</strong>, <strong>descricao</strong>,{' '}
         <strong>preco_tabela</strong> (também aceitam nomes como <em>código</em>, <em>preço</em>, <em>valor</em>). Valores
         decimais podem usar vírgula ou ponto.
       </p>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-3 flex flex-wrap gap-2">
         <a
           href={`${import.meta.env.BASE_URL}planilha-exemplo-produtos.csv`}
           download="planilha-exemplo-produtos.csv"
@@ -281,31 +203,9 @@ export default function AdminProdutos() {
         </button>
       </div>
 
-      <form onSubmit={salvarNovo} className="mb-6 space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-        <p className="text-xs font-semibold text-gray-600">Novo produto</p>
-        <input
-          placeholder="Código"
-          value={codigo}
-          onChange={(e) => setCodigo(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Descrição"
-          value={descricao}
-          onChange={(e) => setDescricao(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Preço tabela (ex: 3.50)"
-          value={preco}
-          onChange={(e) => setPreco(e.target.value)}
-          inputMode="decimal"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        />
-        <LoadingButton type="submit" loading={saving} className="w-full">
-          Salvar produto
-        </LoadingButton>
-      </form>
+      <div className="mb-4">
+        <SearchInput value={busca} onChange={setBusca} placeholder="Buscar por código ou descrição..." />
+      </div>
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -315,67 +215,29 @@ export default function AdminProdutos() {
         <div className="space-y-2">
           {produtos.map((p) => (
             <div key={p.id} className="rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm">
-              {editandoId === p.id ? (
-                <form onSubmit={salvarEdicao} className="space-y-2">
-                  <p className="text-xs font-medium text-gray-500">
-                    Código: <span className="font-mono text-gray-900">{editCodigo}</span> (não pode ser alterado)
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-mono font-semibold text-gray-900">{p.codigo}</p>
+                  <p className="text-xs text-gray-600">{p.descricao}</p>
+                  <p className="text-xs text-gray-400">
+                    {Number(p.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {!p.ativo && ' · inativo'}
                   </p>
-                  <input
-                    value={editDescricao}
-                    onChange={(e) => setEditDescricao(e.target.value)}
-                    placeholder="Descrição"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={editPreco}
-                    onChange={(e) => setEditPreco(e.target.value)}
-                    placeholder="Preço"
-                    inputMode="decimal"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input type="checkbox" checked={editAtivo} onChange={(e) => setEditAtivo(e.target.checked)} />
-                    Ativo no catálogo
-                  </label>
-                  <div className="flex gap-2">
-                    <LoadingButton type="submit" loading={salvandoEdicao} className="flex-1">
-                      Salvar
-                    </LoadingButton>
-                    <button
-                      type="button"
-                      onClick={cancelarEdicao}
-                      className="flex items-center justify-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700"
-                    >
-                      <X className="h-4 w-4" />
-                      Cancelar
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-mono font-semibold text-gray-900">{p.codigo}</p>
-                    <p className="text-xs text-gray-600">{p.descricao}</p>
-                    <p className="text-xs text-gray-400">
-                      {Number(p.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      {!p.ativo && ' · inativo'}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => iniciarEdicao(p)}
-                      className="p-2 text-primary-600"
-                      aria-label="Editar"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button type="button" onClick={() => excluir(p.id)} className="p-2 text-red-500" aria-label="Excluir">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
                 </div>
-              )}
+                <div className="flex shrink-0 gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/produtos/${p.id}/editar`)}
+                    className="p-2 text-primary-600"
+                    aria-label="Editar"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button type="button" onClick={() => excluir(p.id)} className="p-2 text-red-500" aria-label="Excluir">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
             </div>
           ))}
           {produtos.length === 0 && <p className="text-sm text-gray-500">Nenhum produto cadastrado.</p>}

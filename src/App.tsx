@@ -22,6 +22,7 @@ import AdminVendedores from './pages/admin/AdminVendedores'
 import AdminClientes from './pages/admin/AdminClientes'
 import AdminRotas from './pages/admin/AdminRotas'
 import AdminProdutos from './pages/admin/AdminProdutos'
+import AdminProdutoForm from './pages/admin/AdminProdutoForm'
 import { hasSupabaseEnv, supabaseEnvError } from './lib/supabase'
 
 export default function App() {
@@ -79,6 +80,8 @@ export default function App() {
                 <Route path="/admin/clientes" element={<AdminClientes />} />
                 <Route path="/admin/rotas" element={<AdminRotas />} />
                 <Route path="/admin/produtos" element={<AdminProdutos />} />
+                <Route path="/admin/produtos/novo" element={<AdminProdutoForm />} />
+                <Route path="/admin/produtos/:id/editar" element={<AdminProdutoForm />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />
