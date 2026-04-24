@@ -6,7 +6,7 @@ import { ChipInput } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { Cliente, ClienteContato, CodigoItem, StatusVisita } from '../types'
+import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
 import { linkMercosWhatsApp, podeEnviarMercos } from '../lib/mercos'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { compartilharOuBaixarPdf } from '../lib/sharePedido'
@@ -47,6 +47,7 @@ export default function VisitaForm() {
   const { user, perfil } = useAuth()
 
   const [dataVisita, setDataVisita] = useState(new Date().toISOString().split('T')[0])
+  const [tipoVisita, setTipoVisita] = useState<TipoVisita>('pedido')
   const [status, setStatus] = useState<StatusVisita>('visitado')
   const [observacao, setObservacao] = useState('')
   const [condicoesPagamento, setCondicoesPagamento] = useState('')
@@ -135,6 +136,7 @@ export default function VisitaForm() {
           Number(dp ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2, useGrouping: false }),
         )
         setNumeroPedido(np ?? null)
+        setTipoVisita(((data as { tipo_visita?: string }).tipo_visita as TipoVisita) ?? 'pedido')
         setItens(
           ((data.codigos as { codigo: string; quantidade: number }[]) ?? []).map((c) => ({
             codigo: c.codigo,
@@ -165,8 +167,75 @@ export default function VisitaForm() {
     }
   }
 
-  const montarPdfBlob = async (): Promise<Blob | null> => {
-    if (!visitaId) return null
+  /** Persiste os dados do formulário sem navegar nem exibir toast de sucesso.
+   * Retorna `{ id, numero }` em caso de sucesso, ou `null` em caso de erro. */
+  const salvarDados = async (): Promise<{ id: string; numero: number | null } | null> => {
+    if (!clienteId || !user) return null
+    const vf = parseMoneyInput(valorFrete)
+    const dp = parsePercentInput(descontoPercent)
+
+    if (isEditing && visitaId) {
+      const { error } = await supabase
+        .from('visitas')
+        .update({
+          data_visita: dataVisita,
+          status,
+          tipo_visita: tipoVisita,
+          observacao: observacao.trim() || null,
+          condicoes_pagamento: condicoesPagamento.trim() || null,
+          valor_frete: vf,
+          desconto_percent: dp,
+        })
+        .eq('id', visitaId)
+      if (error) {
+        toast.error('Erro ao salvar')
+        return null
+      }
+      await supabase.from('visita_codigos').delete().eq('visita_id', visitaId)
+      if (itens.length > 0) {
+        await supabase.from('visita_codigos').insert(
+          itens.map((i) => ({ visita_id: visitaId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
+        )
+      }
+      return { id: visitaId, numero: numeroPedido }
+    }
+
+    const payload = {
+      cliente_id: clienteId,
+      vendedor_id: user.id,
+      data_visita: dataVisita,
+      status,
+      tipo_visita: tipoVisita,
+      observacao: observacao.trim() || null,
+      condicoes_pagamento: condicoesPagamento.trim() || null,
+      // rota_execucao_id só é preenchido quando o acesso vem da execução de rota;
+      // visitas registradas pela tela de clientes nunca interferem numa rota ativa.
+      rota_execucao_id: execucaoId,
+      valor_frete: vf,
+      desconto_percent: dp,
+    }
+    const { data: visita, error } = await supabase
+      .from('visitas')
+      .insert(payload)
+      .select('id, numero_pedido')
+      .single()
+    if (error || !visita) {
+      toast.error('Erro ao registrar')
+      return null
+    }
+    const novoId = visita.id as string
+    const novoNumero = (visita as { numero_pedido?: number }).numero_pedido ?? null
+    setNumeroPedido(novoNumero)
+    if (itens.length > 0) {
+      const { error: codErr } = await supabase.from('visita_codigos').insert(
+        itens.map((i) => ({ visita_id: novoId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
+      )
+      if (codErr) toast.error('Salvo, mas erro ao salvar itens')
+    }
+    return { id: novoId, numero: novoNumero }
+  }
+
+  const montarPdfBlob = async (id: string): Promise<Blob | null> => {
     const { data: row, error } = await supabase
       .from('visitas')
       .select(
@@ -176,7 +245,7 @@ export default function VisitaForm() {
         codigos:visita_codigos(id, codigo, quantidade)
       `,
       )
-      .eq('id', visitaId)
+      .eq('id', id)
       .single()
     if (error || !row) {
       toast.error('Erro ao carregar visita para o PDF')
@@ -212,9 +281,11 @@ export default function VisitaForm() {
     const vf = parseMoneyInput(valorFrete)
     const dp = parsePercentInput(descontoPercent)
     const np = (row as { numero_pedido?: number }).numero_pedido ?? 0
+    const tipoDoc = ((row as { tipo_visita?: string }).tipo_visita as TipoVisita) ?? 'pedido'
     return buildPedidoPdfBlob({
       numeroPedido: np,
       dataEmissao: new Date((row as { data_visita: string }).data_visita + 'T12:00:00'),
+      tipoVisita: tipoDoc,
       cliente,
       visita: {
         condicoes_pagamento: row.condicoes_pagamento as string | null,
@@ -224,7 +295,7 @@ export default function VisitaForm() {
       },
       codigos: codigos.map((c, i) => ({
         id: `tmp-${i}`,
-        visita_id: visitaId,
+        visita_id: id,
         codigo: c.codigo,
         quantidade: c.quantidade,
       })),
@@ -237,41 +308,40 @@ export default function VisitaForm() {
   }
 
   const handleExportarPdf = async () => {
-    if (!visitaId) {
-      toast.error('Salve a visita antes de gerar o PDF')
-      return
-    }
     setExportando(true)
     try {
-      const blob = await montarPdfBlob()
+      const resultado = await salvarDados()
+      if (!resultado) return
+      const blob = await montarPdfBlob(resultado.id)
       if (!blob) return
-      const np = numeroPedido ?? 0
+      const np = resultado.numero ?? 0
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = `Pedido_${np || visitaId.slice(0, 8)}.pdf`
+      const prefixo = tipoVisita === 'orcamento' ? 'Orcamento' : 'Pedido'
+      a.download = `${prefixo}_${np || resultado.id.slice(0, 8)}.pdf`
       a.click()
       URL.revokeObjectURL(a.href)
-      toast.success('PDF baixado')
+      toast.success('Salvo e PDF gerado')
+      if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
       setExportando(false)
     }
   }
 
   const handleEnviarCliente = async () => {
-    if (!visitaId) {
-      toast.error('Salve a visita antes de enviar')
-      return
-    }
     setExportando(true)
     try {
-      const blob = await montarPdfBlob()
+      const resultado = await salvarDados()
+      if (!resultado) return
+      const blob = await montarPdfBlob(resultado.id)
       if (!blob) return
-      const np = numeroPedido ?? 0
+      const np = resultado.numero ?? 0
       const r = await compartilharOuBaixarPdf(blob, np, clienteTelefone)
       if (r === 'cancelled') return
       if (r === 'shared') toast.success('Compartilhamento aberto')
       else if (r === 'wa_opened') toast.success('PDF baixado — WhatsApp do cliente aberto; anexe o arquivo.')
       else toast.success('PDF baixado')
+      if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
       setExportando(false)
     }
@@ -304,81 +374,15 @@ export default function VisitaForm() {
     e.preventDefault()
     if (!clienteId || !user) return
     setLoading(true)
-
-    const vf = parseMoneyInput(valorFrete)
-    const dp = parsePercentInput(descontoPercent)
-
-    const payload = {
-      cliente_id: clienteId,
-      vendedor_id: user.id,
-      data_visita: dataVisita,
-      status,
-      observacao: observacao.trim() || null,
-      condicoes_pagamento: condicoesPagamento.trim() || null,
-      rota_execucao_id: execucaoId,
-      valor_frete: vf,
-      desconto_percent: dp,
-    }
-
-    if (isEditing && visitaId) {
-      const { error } = await supabase
-        .from('visitas')
-        .update({
-          data_visita: payload.data_visita,
-          status: payload.status,
-          observacao: payload.observacao,
-          condicoes_pagamento: payload.condicoes_pagamento,
-          valor_frete: vf,
-          desconto_percent: dp,
-        })
-        .eq('id', visitaId)
-
-      if (error) {
-        toast.error('Erro ao atualizar visita')
-        setLoading(false)
-        return
-      }
-
-      await supabase.from('visita_codigos').delete().eq('visita_id', visitaId)
-      if (itens.length > 0) {
-        await supabase.from('visita_codigos').insert(
-          itens.map((i) => ({ visita_id: visitaId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
-        )
-      }
-      toast.success('Visita atualizada')
-      setLoading(false)
-      navigate(-1)
-      return
-    }
-
-    const { data: visita, error } = await supabase.from('visitas').insert(payload).select('id, numero_pedido').single()
-
-    if (error || !visita) {
-      toast.error('Erro ao registrar visita')
-      setLoading(false)
-      return
-    }
-
-    const novoId = visita.id as string
-    const novoNumero = (visita as { numero_pedido?: number }).numero_pedido ?? null
-
-    if (itens.length > 0) {
-      const { error: codErr } = await supabase.from('visita_codigos').insert(
-        itens.map((i) => ({
-          visita_id: novoId,
-          codigo: i.codigo.trim(),
-          quantidade: i.quantidade,
-        })),
-      )
-      if (codErr) {
-        toast.error('Visita salva, mas erro ao salvar itens')
-      }
-    }
-
-    toast.success('Visita registrada')
+    const resultado = await salvarDados()
     setLoading(false)
-    setNumeroPedido(novoNumero)
-    navigateParaEdicao(novoId)
+    if (!resultado) return
+    toast.success(tipoVisita === 'orcamento' ? 'Orçamento salvo' : 'Pedido salvo')
+    if (isEditing) {
+      navigate(-1)
+    } else {
+      navigateParaEdicao(resultado.id)
+    }
   }
 
   const deletarVisita = async () => {
@@ -391,7 +395,7 @@ export default function VisitaForm() {
       toast.error('Erro ao excluir')
       return
     }
-    toast.success('Visita excluída')
+    toast.success(tipoVisita === 'orcamento' ? 'Orçamento excluído' : 'Pedido excluído')
     navigate(-1)
   }
 
@@ -421,11 +425,15 @@ export default function VisitaForm() {
       <div className="mb-4 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-gray-900">
-            {isEditing ? 'Editar Visita' : 'Registrar Visita'}
+            {isEditing
+              ? (tipoVisita === 'orcamento' ? 'Editar Orçamento' : 'Editar Pedido')
+              : (tipoVisita === 'orcamento' ? 'Registrar Orçamento' : 'Registrar Pedido')}
           </h2>
           {clienteNome && <p className="text-sm text-gray-500">{clienteNome}</p>}
           {numeroPedido != null && (
-            <p className="mt-1 text-xs font-medium text-primary-700">Pedido nº {numeroPedido}</p>
+            <p className="mt-1 text-xs font-medium text-primary-700">
+              {tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'} nº {numeroPedido}
+            </p>
           )}
         </div>
         {isEditing && (
@@ -442,6 +450,26 @@ export default function VisitaForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="mb-2 block text-xs font-medium text-gray-600">Tipo</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['pedido', 'orcamento'] as const).map((tipo) => (
+              <button
+                key={tipo}
+                type="button"
+                onClick={() => setTipoVisita(tipo)}
+                className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-all ${
+                  tipoVisita === tipo
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-gray-200 bg-white text-gray-500'
+                }`}
+              >
+                {tipo === 'pedido' ? 'Pedido' : 'Orçamento'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">Data da Visita</label>
           <input
@@ -542,31 +570,29 @@ export default function VisitaForm() {
 
         <div className="space-y-2">
           <LoadingButton type="submit" loading={loading} className="w-full">
-            {isEditing ? 'Salvar Alterações' : 'Salvar Visita'}
+            {isEditing
+              ? 'Salvar Alterações'
+              : (tipoVisita === 'orcamento' ? 'Salvar Orçamento' : 'Salvar Pedido')}
           </LoadingButton>
 
-          {isEditing && (
-            <>
-              <button
-                type="button"
-                disabled={exportando}
-                onClick={() => void handleExportarPdf()}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 disabled:opacity-50"
-              >
-                {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                Exportar PDF do pedido
-              </button>
-              <button
-                type="button"
-                disabled={exportando}
-                onClick={() => void handleEnviarCliente()}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:opacity-50"
-              >
-                <Share2 className="h-4 w-4" />
-                Enviar ao cliente (PDF + WhatsApp)
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            disabled={exportando || loading}
+            onClick={() => void handleExportarPdf()}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 disabled:opacity-50"
+          >
+            {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+            Exportar PDF do pedido
+          </button>
+          <button
+            type="button"
+            disabled={exportando || loading}
+            onClick={() => void handleEnviarCliente()}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:opacity-50"
+          >
+            <Share2 className="h-4 w-4" />
+            Enviar ao cliente (PDF + WhatsApp)
+          </button>
 
           <button
             type="button"

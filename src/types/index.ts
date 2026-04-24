@@ -65,6 +65,7 @@ export interface Cliente {
 }
 
 export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado'
+export type TipoVisita = 'pedido' | 'orcamento'
 
 export interface Visita {
   id: string
@@ -72,6 +73,8 @@ export interface Visita {
   vendedor_id: string
   data_visita: string
   status: StatusVisita
+  /** Tipo do documento: pedido (padrão) ou orçamento. */
+  tipo_visita: TipoVisita
   observacao: string | null
   condicoes_pagamento: string | null
   rota_execucao_id: string | null

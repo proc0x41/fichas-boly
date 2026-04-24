@@ -24,6 +24,8 @@ export interface PedidoPdfVendedor {
 export interface PedidoPdfInput {
   numeroPedido: number
   dataEmissao: Date
+  /** Tipo do documento exibido no cabeçalho do PDF. */
+  tipoVisita?: 'pedido' | 'orcamento'
   cliente: Cliente
   visita: {
     condicoes_pagamento: string | null
@@ -124,8 +126,9 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   doc.setFont(FONT_MAIN, 'bold')
   doc.setFontSize(11)
   doc.setTextColor(20, 24, 31)
+  const tipoLabel = input.tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'
   doc.text('Boly Encartelados', MARGIN, y + 4)
-  doc.text(`Pedido nº ${input.numeroPedido}`, pageW - MARGIN, y + 4, { align: 'right' })
+  doc.text(`${tipoLabel} nº ${input.numeroPedido}`, pageW - MARGIN, y + 4, { align: 'right' })
   y += 6
   doc.setDrawColor(COL_GRID[0], COL_GRID[1], COL_GRID[2])
   doc.setLineWidth(0.35)

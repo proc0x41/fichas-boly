@@ -7,7 +7,7 @@ import { PaginationBar } from '../components/PaginationBar'
 import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
-import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita } from '../types'
+import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita, TipoVisita } from '../types'
 
 type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
 
@@ -21,6 +21,7 @@ export default function ClienteDetalhe() {
   const [visitas, setVisitas] = useState<VisitaComCodigos[]>([])
   const [visitasTotal, setVisitasTotal] = useState(0)
   const [visitasPage, setVisitasPage] = useState(1)
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | TipoVisita>('todos')
   const [loading, setLoading] = useState(true)
   const [deletando, setDeletando] = useState(false)
   const lastClienteIdRef = useRef<string | undefined>(undefined)
@@ -33,7 +34,6 @@ export default function ClienteDetalhe() {
       setVisitasPage(1)
       return
     }
-
     let cancelled = false
     setLoading(true)
     supabase
@@ -52,18 +52,26 @@ export default function ClienteDetalhe() {
           return
         }
         setCliente(data as Cliente)
+        let visitasQuery = supabase
+          .from('visitas')
+          .select('*, codigos:visita_codigos(*)', { count: 'exact' })
+          .eq('cliente_id', id)
+          .order('data_visita', { ascending: false })
+
+        if (filtroTipo !== 'todos') {
+          visitasQuery = visitasQuery.eq('tipo_visita', filtroTipo)
+        }
+
         const [contatosRes, vRes] = await Promise.all([
           supabase
             .from('cliente_contatos')
             .select('*')
             .eq('cliente_id', id)
             .order('ordem'),
-          supabase
-            .from('visitas')
-            .select('*, codigos:visita_codigos(*)', { count: 'exact' })
-            .eq('cliente_id', id)
-            .order('data_visita', { ascending: false })
-            .range((clienteMudou ? 0 : (visitasPage - 1) * VISITAS_PAGE_SIZE), (clienteMudou ? VISITAS_PAGE_SIZE - 1 : visitasPage * VISITAS_PAGE_SIZE - 1)),
+          visitasQuery.range(
+            clienteMudou ? 0 : (visitasPage - 1) * VISITAS_PAGE_SIZE,
+            clienteMudou ? VISITAS_PAGE_SIZE - 1 : visitasPage * VISITAS_PAGE_SIZE - 1,
+          ),
         ])
         if (cancelled) return
         setContatos((contatosRes.data as ClienteContato[]) ?? [])
@@ -79,7 +87,7 @@ export default function ClienteDetalhe() {
     return () => {
       cancelled = true
     }
-  }, [id, visitasPage])
+  }, [id, visitasPage, filtroTipo])
 
   if (loading) {
     return (
@@ -230,23 +238,56 @@ export default function ClienteDetalhe() {
         )}
       </div>
 
-      <h3 className="mb-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
-        Histórico de Visitas
+      <h3 className="mb-2 text-sm font-semibold text-gray-500 uppercase tracking-wide">
+        Histórico de Pedidos e Orçamentos
       </h3>
+
+      <div className="mb-3 flex gap-2">
+        {([['todos', 'Todos'], ['pedido', 'Pedidos'], ['orcamento', 'Orçamentos']] as const).map(
+          ([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => {
+                setFiltroTipo(val)
+                setVisitasPage(1)
+              }}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                filtroTipo === val
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-600 active:bg-gray-200'
+              }`}
+            >
+              {label}
+            </button>
+          ),
+        )}
+      </div>
 
       {visitas.length === 0 ? (
         <EmptyState
           icon={<ClipboardList className="h-10 w-10" />}
-          title="Nenhuma visita registrada"
+          title="Nenhum pedido ou orçamento registrado"
         />
       ) : (
         <div className="space-y-3">
           {visitas.map((v) => (
             <div key={v.id} className="rounded-xl border border-gray-200 bg-white p-4">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">
-                  {new Date(v.data_visita).toLocaleDateString('pt-BR')}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    {new Date(v.data_visita).toLocaleDateString('pt-BR')}
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      v.tipo_visita === 'orcamento'
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    {v.tipo_visita === 'orcamento' ? 'Orçamento' : 'Pedido'}
+                  </span>
+                </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={v.status as StatusVisita} />
                   <Link
@@ -295,7 +336,7 @@ export default function ClienteDetalhe() {
         className="fixed bottom-20 right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-primary-600 px-5 text-sm font-medium text-white shadow-lg transition-transform active:scale-95"
       >
         <Plus className="h-5 w-5" />
-        Registrar Visita
+        Novo Pedido/Orçamento
       </Link>
     </div>
   )
