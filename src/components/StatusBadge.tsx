@@ -5,6 +5,7 @@ const config: Record<StatusVisita, { label: string; classes: string }> = {
   visitado: { label: 'Visitado', classes: 'bg-green-100 text-green-700' },
   nao_encontrado: { label: 'Não encontrado', classes: 'bg-red-100 text-red-700' },
   reagendado: { label: 'Reagendado', classes: 'bg-yellow-100 text-yellow-700' },
+  pedido: { label: 'Pedido', classes: 'bg-blue-100 text-blue-700' },
 }
 
 export function StatusBadge({ status }: { status: StatusVisita }) {
