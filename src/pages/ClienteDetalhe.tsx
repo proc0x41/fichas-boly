@@ -110,19 +110,6 @@ export default function ClienteDetalhe() {
     navigate('/clientes')
   }
 
-  const deletarCliente = async () => {
-    if (!confirm('Excluir este cliente? Esta ação não pode ser desfeita.')) return
-    setDeletando(true)
-    const { error } = await supabase.from('clientes').delete().eq('id', id)
-    setDeletando(false)
-    if (error) {
-      toast.error('Erro ao excluir cliente')
-      return
-    }
-    toast.success('Cliente excluído')
-    navigate('/clientes')
-  }
-
   const info = [
     { label: 'Razão Social', value: cliente.razao_social },
     { label: 'CNPJ', value: cliente.cnpj ? maskCNPJ(cliente.cnpj) : null },
