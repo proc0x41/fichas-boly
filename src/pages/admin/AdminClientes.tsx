@@ -151,6 +151,20 @@ export default function AdminClientes() {
     void load()
   }, [load])
 
+  const upsertContatos = async (
+    clienteId: string,
+    telefones: string[],
+    emails: string[],
+    clientesComContatosJa: Set<string>,
+  ) => {
+    if (clientesComContatosJa.has(clienteId)) return
+    const contatos: { cliente_id: string; tipo: string; valor: string; rotulo: null; ordem: number }[] = []
+    telefones.forEach((tel, i) => contatos.push({ cliente_id: clienteId, tipo: 'telefone', valor: tel, rotulo: null, ordem: i }))
+    emails.forEach((email, i) => contatos.push({ cliente_id: clienteId, tipo: 'email', valor: email, rotulo: null, ordem: telefones.length + i }))
+    if (contatos.length === 0) return
+    await supabase.from('cliente_contatos').insert(contatos)
+  }
+
   const importarArquivo = async (f: File) => {
     if (!vendedorImportId) {
       toast.error('Selecione o responsável pela importação')
@@ -162,103 +176,185 @@ export default function AdminClientes() {
       const wb = XLSX.read(ab, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false })
-      let ok = 0
-      let err = 0
+
+      // Pré-processa todas as linhas da planilha (validação + parse)
+      type RowParsed = {
+        payload: Record<string, unknown>
+        cnpjRaw: string
+        fantasia: string
+        telefones: string[]
+        emails: string[]
+      }
+      const validas: RowParsed[] = []
+      let parseErr = 0
 
       for (const row of rows) {
         const fantasia = getCell(row, 'fantasia', 'nome fantasia', 'nome_fantasia', 'fant')
         if (!fantasia) continue
 
         const cnpjRaw = unmask(getCell(row, 'cnpj', 'cnpj cliente'))
-        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) {
-          err++
-          continue
-        }
-        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) {
-          err++
-          continue
-        }
+        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { parseErr++; continue }
+        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { parseErr++; continue }
 
         const estadoRaw = getCell(row, 'estado', 'uf').toUpperCase().slice(0, 2) || null
         const cepRaw = unmask(getCell(row, 'cep'))
-        const telRaw = unmask(getCell(row, 'telefone', 'fone', 'tel'))
         const ieRaw = unmask(getCell(row, 'inscricao_estadual', 'ie', 'inscrição estadual', 'inscricao estadual'))
 
-        const clienteDesde = parseClienteDesde(getCell(row, 'cliente_desde', 'desde', 'data cadastro'))
+        const telefones = [
+          getCell(row, 'telefone', 'fone', 'tel'),
+          getCell(row, 'telefone2', 'fone2', 'tel2'),
+          getCell(row, 'telefone3', 'fone3', 'tel3'),
+        ].map((v) => unmask(v)).filter((v) => v.length >= 10)
 
-        const payload = {
-          vendedor_id: vendedorImportId,
+        const emails = [
+          getCell(row, 'email', 'e-mail'),
+          getCell(row, 'email2', 'e-mail2'),
+          getCell(row, 'email3', 'e-mail3'),
+        ].map((v) => v.trim()).filter(Boolean)
+
+        validas.push({
+          cnpjRaw,
           fantasia,
-          razao_social: getCell(row, 'razao_social', 'razão social', 'razao', 'razão') || null,
-          cnpj: cnpjRaw.length === 14 ? cnpjRaw : null,
-          inscricao_estadual: ieRaw || null,
-          endereco: getCell(row, 'endereco', 'endereço', 'logradouro') || null,
-          numero: getCell(row, 'numero', 'número', 'num') || null,
-          bairro: getCell(row, 'bairro') || null,
-          cidade: getCell(row, 'cidade', 'município', 'municipio') || null,
-          estado: estadoRaw,
-          cep: cepRaw.length === 8 ? cepRaw : null,
-          telefone: telRaw.length >= 10 ? telRaw : null,
-          email: getCell(row, 'email', 'e-mail') || null,
-          comprador: getCell(row, 'comprador', 'contato') || null,
-          dia_compras: getCell(row, 'dia_compras', 'dia compras', 'dia de compras') || null,
-          cliente_desde: clienteDesde,
-          display_chao: parseOptionalNonNegInt(getCell(row, 'display_chao', 'display chão', 'display chao'), 0),
-          display_balcao: parseOptionalNonNegInt(getCell(row, 'display_balcao', 'display balcão', 'display balcao'), 0),
-          display_parede: parseOptionalNonNegInt(getCell(row, 'display_parede', 'display parede'), 0),
-          ativo: true,
-        }
+          telefones,
+          emails,
+          payload: {
+            vendedor_id: vendedorImportId,
+            fantasia,
+            razao_social: getCell(row, 'razao_social', 'razão social', 'razao', 'razão') || null,
+            cnpj: cnpjRaw.length === 14 ? cnpjRaw : null,
+            inscricao_estadual: ieRaw || null,
+            endereco: getCell(row, 'endereco', 'endereço', 'logradouro') || null,
+            numero: getCell(row, 'numero', 'número', 'num') || null,
+            bairro: getCell(row, 'bairro') || null,
+            cidade: getCell(row, 'cidade', 'município', 'municipio') || null,
+            estado: estadoRaw,
+            cep: cepRaw.length === 8 ? cepRaw : null,
+            comprador: getCell(row, 'comprador', 'contato') || null,
+            dia_compras: getCell(row, 'dia_compras', 'dia compras', 'dia de compras') || null,
+            cliente_desde: parseClienteDesde(getCell(row, 'cliente_desde', 'desde', 'data cadastro')),
+            is_cliente: true,
+            display_chao: parseOptionalNonNegInt(getCell(row, 'display_chao', 'display chão', 'display chao'), 0),
+            display_balcao: parseOptionalNonNegInt(getCell(row, 'display_balcao', 'display balcão', 'display balcao'), 0),
+            display_parede: parseOptionalNonNegInt(getCell(row, 'display_parede', 'display parede'), 0),
+            ativo: true,
+          },
+        })
+      }
 
-        let existingId: string | null = null
-        if (cnpjRaw.length === 14) {
-          const { data: ex } = await supabase
-            .from('clientes')
-            .select('id')
-            .eq('vendedor_id', vendedorImportId)
-            .eq('cnpj', cnpjRaw)
-            .maybeSingle()
-          existingId = ex?.id ?? null
-        } else {
-          const { data: ex } = await supabase
-            .from('clientes')
-            .select('id')
-            .eq('vendedor_id', vendedorImportId)
-            .eq('fantasia', fantasia)
-            .maybeSingle()
-          existingId = ex?.id ?? null
-        }
+      if (validas.length === 0) {
+        toast.error('Nenhuma linha válida encontrada')
+        setImporting(false)
+        return
+      }
 
+      // 1 request: busca todos os clientes existentes do vendedor de uma vez
+      const cnpjs = validas.map((r) => r.cnpjRaw).filter((c) => c.length === 14)
+      const fantasias = validas.filter((r) => r.cnpjRaw.length !== 14).map((r) => r.fantasia)
+
+      const [{ data: existintesPorCnpj }, { data: existentesPorFantasia }] = await Promise.all([
+        cnpjs.length > 0
+          ? supabase.from('clientes').select('id, cnpj').eq('vendedor_id', vendedorImportId).in('cnpj', cnpjs)
+          : Promise.resolve({ data: [] }),
+        fantasias.length > 0
+          ? supabase.from('clientes').select('id, fantasia').eq('vendedor_id', vendedorImportId).in('fantasia', fantasias)
+          : Promise.resolve({ data: [] }),
+      ])
+
+      const mapCnpj = new Map((existintesPorCnpj ?? []).map((c) => [c.cnpj as string, c.id as string]))
+      const mapFantasia = new Map((existentesPorFantasia ?? []).map((c) => [c.fantasia as string, c.id as string]))
+
+      // 1 request: busca quais clientes existentes já têm contatos
+      const idsExistentes = [...mapCnpj.values(), ...mapFantasia.values()]
+      const clientesComContatos = new Set<string>()
+      if (idsExistentes.length > 0) {
+        const { data: comContatos } = await supabase
+          .from('cliente_contatos')
+          .select('cliente_id')
+          .in('cliente_id', idsExistentes)
+        ;(comContatos ?? []).forEach((r) => clientesComContatos.add(r.cliente_id as string))
+      }
+
+      // Separa novos vs existentes
+      const novos: typeof validas = []
+      const existentes: (typeof validas[0] & { id: string })[] = []
+
+      for (const r of validas) {
+        const existingId =
+          r.cnpjRaw.length === 14
+            ? (mapCnpj.get(r.cnpjRaw) ?? null)
+            : (mapFantasia.get(r.fantasia) ?? null)
         if (existingId) {
-          const { error } = await supabase
-            .from('clientes')
-            .update({
-              fantasia: payload.fantasia,
-              razao_social: payload.razao_social,
-              cnpj: payload.cnpj,
-              inscricao_estadual: payload.inscricao_estadual,
-              endereco: payload.endereco,
-              numero: payload.numero,
-              bairro: payload.bairro,
-              cidade: payload.cidade,
-              estado: payload.estado,
-              cep: payload.cep,
-              telefone: payload.telefone,
-              email: payload.email,
-              comprador: payload.comprador,
-              dia_compras: payload.dia_compras,
-              cliente_desde: payload.cliente_desde,
-              display_chao: payload.display_chao,
-              display_balcao: payload.display_balcao,
-              display_parede: payload.display_parede,
-            })
-            .eq('id', existingId)
-          if (error) err++
-          else ok++
+          existentes.push({ ...r, id: existingId })
         } else {
-          const { error } = await supabase.from('clientes').insert(payload)
-          if (error) err++
-          else ok++
+          novos.push(r)
         }
+      }
+
+      let ok = 0
+      let err = parseErr
+
+      // Batch insert novos (1 request)
+      if (novos.length > 0) {
+        const { data: inseridos, error } = await supabase
+          .from('clientes')
+          .insert(novos.map((r) => r.payload))
+          .select('id, cnpj, fantasia')
+        if (error) {
+          err += novos.length
+        } else {
+          ok += novos.length
+          // Insere contatos dos novos em paralelo
+          const contatosNovos = (inseridos ?? []).flatMap((c) => {
+            const row = novos.find(
+              (r) => (r.cnpjRaw.length === 14 ? r.cnpjRaw === c.cnpj : r.fantasia === c.fantasia),
+            )
+            if (!row || (row.telefones.length === 0 && row.emails.length === 0)) return []
+            const base = row.telefones.map((tel, i) => ({
+              cliente_id: c.id as string, tipo: 'telefone', valor: tel, rotulo: null, ordem: i,
+            }))
+            row.emails.forEach((email, i) =>
+              base.push({ cliente_id: c.id as string, tipo: 'email', valor: email, rotulo: null, ordem: row.telefones.length + i }),
+            )
+            return base
+          })
+          if (contatosNovos.length > 0) {
+            await supabase.from('cliente_contatos').insert(contatosNovos)
+          }
+        }
+      }
+
+      // Updates dos existentes em paralelo (máx 10 simultâneos para não sobrecarregar)
+      const BATCH = 10
+      for (let i = 0; i < existentes.length; i += BATCH) {
+        await Promise.all(
+          existentes.slice(i, i + BATCH).map(async (r) => {
+            const { payload: p } = r
+            const { error } = await supabase
+              .from('clientes')
+              .update({
+                fantasia: p.fantasia,
+                razao_social: p.razao_social,
+                cnpj: p.cnpj,
+                inscricao_estadual: p.inscricao_estadual,
+                endereco: p.endereco,
+                numero: p.numero,
+                bairro: p.bairro,
+                cidade: p.cidade,
+                estado: p.estado,
+                cep: p.cep,
+                comprador: p.comprador,
+                dia_compras: p.dia_compras,
+                cliente_desde: p.cliente_desde,
+                display_chao: p.display_chao,
+                display_balcao: p.display_balcao,
+                display_parede: p.display_parede,
+              })
+              .eq('id', r.id)
+            if (error) { err++; return }
+            ok++
+            await upsertContatos(r.id, r.telefones, r.emails, clientesComContatos)
+          }),
+        )
       }
 
       toast.success(`Importação: ${ok} linhas OK${err ? `, ${err} ignoradas` : ''}`)

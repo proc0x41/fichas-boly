@@ -22,6 +22,16 @@ export interface Produto {
   atualizado_em: string
 }
 
+export interface ClienteContato {
+  id: string
+  cliente_id: string
+  tipo: 'telefone' | 'email'
+  valor: string
+  rotulo: string | null
+  ordem: number
+  criado_em: string
+}
+
 export interface Cliente {
   id: string
   vendedor_id: string
@@ -35,11 +45,15 @@ export interface Cliente {
   cidade: string | null
   estado: string | null
   cep: string | null
+  /** @deprecated use cliente_contatos */
   telefone: string | null
+  /** @deprecated use cliente_contatos */
   email: string | null
   comprador: string | null
   dia_compras: string | null
   cliente_desde: string | null
+  /** true = cliente ativo, false = prospect */
+  is_cliente: boolean
   display_chao: number
   display_balcao: number
   display_parede: number
@@ -47,6 +61,7 @@ export interface Cliente {
   ativo: boolean
   criado_em: string
   ultima_visita?: string | null
+  contatos?: ClienteContato[]
 }
 
 export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado'

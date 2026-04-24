@@ -6,7 +6,7 @@ import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
 import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
-import type { Cliente, Visita, VisitaCodigo, StatusVisita } from '../types'
+import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita } from '../types'
 
 type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
 
@@ -16,6 +16,7 @@ export default function ClienteDetalhe() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [cliente, setCliente] = useState<Cliente | null>(null)
+  const [contatos, setContatos] = useState<ClienteContato[]>([])
   const [visitas, setVisitas] = useState<VisitaComCodigos[]>([])
   const [visitasTotal, setVisitasTotal] = useState(0)
   const [visitasPage, setVisitasPage] = useState(1)
@@ -42,26 +43,32 @@ export default function ClienteDetalhe() {
         if (cancelled) return
         if (error || !data) {
           setCliente(null)
+          setContatos([])
           setVisitas([])
           setVisitasTotal(0)
           setLoading(false)
           return
         }
         setCliente(data as Cliente)
-        const page = clienteMudou ? 1 : visitasPage
-        const from = (page - 1) * VISITAS_PAGE_SIZE
-        const to = from + VISITAS_PAGE_SIZE - 1
-        const vRes = await supabase
-          .from('visitas')
-          .select('*, codigos:visita_codigos(*)', { count: 'exact' })
-          .eq('cliente_id', id)
-          .order('data_visita', { ascending: false })
-          .range(from, to)
+        const [contatosRes, vRes] = await Promise.all([
+          supabase
+            .from('cliente_contatos')
+            .select('*')
+            .eq('cliente_id', id)
+            .order('ordem'),
+          supabase
+            .from('visitas')
+            .select('*, codigos:visita_codigos(*)', { count: 'exact' })
+            .eq('cliente_id', id)
+            .order('data_visita', { ascending: false })
+            .range((clienteMudou ? 0 : (visitasPage - 1) * VISITAS_PAGE_SIZE), (clienteMudou ? VISITAS_PAGE_SIZE - 1 : visitasPage * VISITAS_PAGE_SIZE - 1)),
+        ])
         if (cancelled) return
+        setContatos((contatosRes.data as ClienteContato[]) ?? [])
         if (vRes.data) {
           setVisitas(vRes.data as VisitaComCodigos[])
           setVisitasTotal(vRes.count ?? 0)
-          if (vRes.data.length === 0 && page > 1) {
+          if (vRes.data.length === 0 && visitasPage > 1) {
             setVisitasPage((p) => Math.max(1, p - 1))
           }
         }
@@ -103,8 +110,6 @@ export default function ClienteDetalhe() {
         cliente.cep ? maskCEP(cliente.cep) : null,
       ].filter(Boolean).join(', '),
     },
-    { label: 'Telefone', value: cliente.telefone ? maskTelefone(cliente.telefone) : null },
-    { label: 'E-mail', value: cliente.email },
     { label: 'Comprador', value: cliente.comprador },
     { label: 'Dia de Compras', value: cliente.dia_compras },
     {
@@ -128,7 +133,18 @@ export default function ClienteDetalhe() {
 
       <div className="mb-4 flex items-start justify-between">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{cliente.fantasia}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-gray-900">{cliente.fantasia}</h2>
+            <span
+              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                cliente.is_cliente
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-orange-100 text-orange-700'
+              }`}
+            >
+              {cliente.is_cliente ? 'Cliente' : 'Prospect'}
+            </span>
+          </div>
           {!cliente.ativo && (
             <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
               Inativo
@@ -153,6 +169,30 @@ export default function ClienteDetalhe() {
                 <p className="text-sm text-gray-800">{value}</p>
               </div>
             ),
+        )}
+        {contatos.length > 0 && (
+          <div className="border-t border-gray-100 px-4 py-3">
+            <p className="mb-2 text-xs font-medium text-gray-400">Contatos</p>
+            <div className="space-y-1">
+              {(['telefone', 'email'] as const).flatMap((tipo) =>
+                contatos
+                  .filter((c) => c.tipo === tipo)
+                  .map((c) => (
+                    <div key={c.id} className="flex items-center gap-2">
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 uppercase">
+                        {tipo === 'telefone' ? 'Tel' : 'Email'}
+                      </span>
+                      <span className="text-sm text-gray-800">
+                        {tipo === 'telefone' ? maskTelefone(c.valor) : c.valor}
+                      </span>
+                      {c.rotulo && (
+                        <span className="text-xs text-gray-400">({c.rotulo})</span>
+                      )}
+                    </div>
+                  )),
+              )}
+            </div>
+          </div>
         )}
       </div>
 

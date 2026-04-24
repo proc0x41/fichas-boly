@@ -18,6 +18,12 @@ dist-ssr
 .env.production
 .env*.local
 
+# Copilot / AI context files
+.github/copilot-instructions.md
+.copilot/
+.cursor/
+.aider*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

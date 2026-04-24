@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { Cliente, VisitaCodigo } from '../types'
+import logoPdfUrl from '../assets/logo_pdf.jpeg'
 import {
-  MARCA_CABECALHO,
   REPRESENTADA_CNPJ,
   REPRESENTADA_EMAIL,
   REPRESENTADA_NOME,
@@ -73,6 +73,33 @@ function fmtCNPJCliente(raw: string | null): string {
   return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
 }
 
+function getClienteContatos(cliente: Cliente): { telefones: string[]; emails: string[] } {
+  const contatos = [...(cliente.contatos ?? [])].sort((a, b) => {
+    if (a.tipo === b.tipo) return a.ordem - b.ordem
+    return a.tipo === 'telefone' ? -1 : 1
+  })
+
+  const telefones = contatos
+    .filter((contato) => contato.tipo === 'telefone')
+    .map((contato) => contato.valor.trim())
+    .filter(Boolean)
+
+  const emails = contatos
+    .filter((contato) => contato.tipo === 'email')
+    .map((contato) => contato.valor.trim())
+    .filter(Boolean)
+
+  if (telefones.length === 0 && cliente.telefone?.trim()) {
+    telefones.push(cliente.telefone.trim())
+  }
+
+  if (emails.length === 0 && cliente.email?.trim()) {
+    emails.push(cliente.email.trim())
+  }
+
+  return { telefones, emails }
+}
+
 function pageInnerWidth(doc: jsPDF): number {
   return doc.internal.pageSize.getWidth() - MARGIN * 2
 }
@@ -93,23 +120,28 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   const innerW = pageInnerWidth(doc)
   let y = MARGIN
 
+  // Cabeçalho compacto
   doc.setFont(FONT_MAIN, 'bold')
-  doc.setFontSize(13)
+  doc.setFontSize(11)
   doc.setTextColor(20, 24, 31)
-  doc.text(MARCA_CABECALHO, MARGIN, y)
-  doc.text(`Pedido nº ${input.numeroPedido}`, pageW - MARGIN, y, { align: 'right' })
-  y += 4
+  doc.text('Boly Encartelados', MARGIN, y + 4)
+  doc.text(`Pedido nº ${input.numeroPedido}`, pageW - MARGIN, y + 4, { align: 'right' })
+  y += 6
   doc.setDrawColor(COL_GRID[0], COL_GRID[1], COL_GRID[2])
   doc.setLineWidth(0.35)
   doc.line(MARGIN, y, pageW - MARGIN, y)
   y += 3
 
+  // Linhas em branco para reservar espaço da logo dentro da célula (~18 mm)
+  const LOGO_CELL_H = 18
   const emitente = [
+    '', '', '', '', '',
     REPRESENTADA_NOME,
     `CNPJ ${REPRESENTADA_CNPJ}  ·  ${REPRESENTADA_TELEFONE}  ·  ${REPRESENTADA_EMAIL}`,
   ].join('\n')
 
   const enderecoCliente = [input.cliente.endereco, input.cliente.numero].filter(Boolean).join(', ')
+  const { telefones, emails } = getClienteContatos(input.cliente)
   const cliente = [
     input.cliente.razao_social ?? '—',
     input.cliente.fantasia ? `Nome fantasia: ${input.cliente.fantasia}` : null,
@@ -117,7 +149,8 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
     enderecoCliente || null,
     [input.cliente.bairro, input.cliente.cep ? `CEP ${input.cliente.cep}` : null].filter(Boolean).join('  ·  ') || null,
     [input.cliente.cidade, input.cliente.estado].filter(Boolean).join(' / ') || null,
-    [input.cliente.telefone, input.cliente.email].filter(Boolean).join('  ·  ') || null,
+    telefones.length > 0 ? `Telefones: ${telefones.join('  ·  ')}` : null,
+    emails.length > 0 ? `E-mails: ${emails.join('  ·  ')}` : null,
     input.cliente.comprador ? `Contato: ${input.cliente.comprador}` : null,
   ]
     .filter(Boolean)
@@ -151,9 +184,18 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
     },
     margin: { left: MARGIN, right: MARGIN },
     tableWidth: innerW,
+    didDrawCell(data) {
+      // Desenha logo_pdf à esquerda na célula body da coluna 0 (emitente)
+      if (data.section === 'body' && data.column.index === 0) {
+        const logoW2 = LOGO_CELL_H * (1320 / 660)
+        const x = data.cell.x + 2
+        const y2 = data.cell.y + 2
+        doc.addImage(logoPdfUrl, 'JPEG', x, y2, logoW2, LOGO_CELL_H)
+      }
+    },
   })
 
-  y = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 3
+  y = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 4
 
   const pct = clampPct(input.visita.desconto_percent ?? 0)
   const fatorLiq = 1 - pct / 100

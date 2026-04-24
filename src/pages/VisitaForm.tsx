@@ -6,7 +6,7 @@ import { ChipInput } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { Cliente, CodigoItem, StatusVisita } from '../types'
+import type { Cliente, ClienteContato, CodigoItem, StatusVisita } from '../types'
 import { linkMercosWhatsApp, podeEnviarMercos } from '../lib/mercos'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { compartilharOuBaixarPdf } from '../lib/sharePedido'
@@ -182,7 +182,23 @@ export default function VisitaForm() {
       toast.error('Erro ao carregar visita para o PDF')
       return null
     }
-    const cliente = row.cliente as Cliente
+    const clienteBase = row.cliente as Cliente
+    const { data: contatosData, error: contatosError } = await supabase
+      .from('cliente_contatos')
+      .select('id, cliente_id, tipo, valor, rotulo, ordem, criado_em')
+      .eq('cliente_id', clienteBase.id)
+
+    if (contatosError) {
+      toast.error('Erro ao carregar contatos do cliente para o PDF')
+    }
+
+    const cliente: Cliente = {
+      ...clienteBase,
+      contatos: ((contatosData ?? []) as ClienteContato[]).sort((a, b) => {
+        if (a.tipo === b.tipo) return a.ordem - b.ordem
+        return a.tipo === 'telefone' ? -1 : 1
+      }),
+    }
     const codigos = (row.codigos as { codigo: string; quantidade: number }[]) ?? []
     const { data: produtosList } = await supabase.from('produtos').select('codigo, descricao, preco_tabela').eq('ativo', true)
     const produtosPorCodigo = new Map<string, ProdutoCatalogo>()

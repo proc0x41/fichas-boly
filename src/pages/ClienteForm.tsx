@@ -3,9 +3,17 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE, unmask, validateCNPJ } from '../lib/masks'
 import toast from 'react-hot-toast'
+import type { ClienteContato } from '../types'
+
+interface ContatoRascunho {
+  id?: string          // existe se veio do banco
+  tipo: 'telefone' | 'email'
+  valor: string
+  rotulo: string
+}
 
 const emptyForm = {
   fantasia: '',
@@ -18,15 +26,16 @@ const emptyForm = {
   cidade: '',
   estado: '',
   cep: '',
-  telefone: '',
-  email: '',
   comprador: '',
   dia_compras: '',
   cliente_desde: '',
+  is_cliente: true,
   display_chao: 0,
   display_balcao: 0,
   display_parede: 0,
 }
+
+const emptyContato = (): ContatoRascunho => ({ tipo: 'telefone', valor: '', rotulo: '' })
 
 export default function ClienteForm() {
   const { id } = useParams()
@@ -34,46 +43,86 @@ export default function ClienteForm() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [form, setForm] = useState(emptyForm)
+  const [contatos, setContatos] = useState<ContatoRascunho[]>([emptyContato()])
   const [loading, setLoading] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
 
   useEffect(() => {
     if (isEditing && id) {
-      supabase
-        .from('clientes')
-        .select('*')
-        .eq('id', id)
-        .single()
-        .then(({ data }) => {
-          if (data) {
-            setForm({
-              fantasia: data.fantasia ?? '',
-              razao_social: data.razao_social ?? '',
-              cnpj: data.cnpj ? maskCNPJ(data.cnpj) : '',
-              inscricao_estadual: data.inscricao_estadual ?? '',
-              endereco: data.endereco ?? '',
-              numero: data.numero ?? '',
-              bairro: data.bairro ?? '',
-              cidade: data.cidade ?? '',
-              estado: data.estado ?? '',
-              cep: data.cep ? maskCEP(data.cep) : '',
-              telefone: data.telefone ? maskTelefone(data.telefone) : '',
-              email: data.email ?? '',
-              comprador: data.comprador ?? '',
-              dia_compras: data.dia_compras ?? '',
-              cliente_desde: data.cliente_desde ?? '',
-              display_chao: data.display_chao ?? 0,
-              display_balcao: data.display_balcao ?? 0,
-              display_parede: data.display_parede ?? 0,
-            })
-          }
-          setLoadingData(false)
-        })
+      Promise.all([
+        supabase.from('clientes').select('*').eq('id', id).single(),
+        supabase
+          .from('cliente_contatos')
+          .select('*')
+          .eq('cliente_id', id)
+          .order('ordem'),
+      ]).then(([{ data }, { data: contatosData }]) => {
+        if (data) {
+          setForm({
+            fantasia: data.fantasia ?? '',
+            razao_social: data.razao_social ?? '',
+            cnpj: data.cnpj ? maskCNPJ(data.cnpj) : '',
+            inscricao_estadual: data.inscricao_estadual ?? '',
+            endereco: data.endereco ?? '',
+            numero: data.numero ?? '',
+            bairro: data.bairro ?? '',
+            cidade: data.cidade ?? '',
+            estado: data.estado ?? '',
+            cep: data.cep ? maskCEP(data.cep) : '',
+            comprador: data.comprador ?? '',
+            dia_compras: data.dia_compras ?? '',
+            cliente_desde: data.cliente_desde ?? '',
+            is_cliente: data.is_cliente ?? true,
+            display_chao: data.display_chao ?? 0,
+            display_balcao: data.display_balcao ?? 0,
+            display_parede: data.display_parede ?? 0,
+          })
+        }
+        if (contatosData && contatosData.length > 0) {
+          const ordenados = [...(contatosData as ClienteContato[])].sort((a, b) => {
+            if (a.tipo === b.tipo) return a.ordem - b.ordem
+            return a.tipo === 'telefone' ? -1 : 1
+          })
+          setContatos(
+            ordenados.map((c) => ({
+              id: c.id,
+              tipo: c.tipo,
+              valor: c.tipo === 'telefone' ? maskTelefone(c.valor) : c.valor,
+              rotulo: c.rotulo ?? '',
+            })),
+          )
+        }
+        setLoadingData(false)
+      })
     }
   }, [id, isEditing])
 
-  const set = (field: string, value: string | number) =>
+  const set = (field: string, value: string | number | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }))
+
+  const addContato = (tipo: 'telefone' | 'email') =>
+    setContatos((prev) => {
+      const novo = { tipo, valor: '', rotulo: '' }
+      if (tipo === 'telefone') {
+        // insere antes do primeiro email
+        const firstEmailIdx = prev.findIndex((c) => c.tipo === 'email')
+        if (firstEmailIdx === -1) return [...prev, novo]
+        return [...prev.slice(0, firstEmailIdx), novo, ...prev.slice(firstEmailIdx)]
+      }
+      return [...prev, novo]
+    })
+
+  const removeContato = (idx: number) =>
+    setContatos((prev) => prev.filter((_, i) => i !== idx))
+
+  const updateContato = (idx: number, field: keyof ContatoRascunho, value: string) =>
+    setContatos((prev) =>
+      prev.map((c, i) => {
+        if (i !== idx) return c
+        if (field === 'valor' && c.tipo === 'telefone') return { ...c, valor: maskTelefone(value) }
+        return { ...c, [field]: value }
+      }),
+    )
 
   const total = form.display_chao + form.display_balcao + form.display_parede
 
@@ -96,10 +145,15 @@ export default function ClienteForm() {
       return
     }
 
-    const telRaw = unmask(form.telefone)
-    if (telRaw && telRaw.length < 10) {
-      toast.error('Telefone deve ter 10 ou 11 dígitos')
-      return
+    // Valida telefones
+    for (const c of contatos) {
+      if (c.tipo === 'telefone' && c.valor) {
+        const raw = unmask(c.valor)
+        if (raw.length < 10) {
+          toast.error('Telefone deve ter 10 ou 11 dígitos')
+          return
+        }
+      }
     }
 
     setLoading(true)
@@ -115,30 +169,65 @@ export default function ClienteForm() {
       cidade: form.cidade || null,
       estado: form.estado.trim().toUpperCase().slice(0, 2) || null,
       cep: cepRaw || null,
-      telefone: telRaw || null,
-      email: form.email || null,
       comprador: form.comprador || null,
       dia_compras: form.dia_compras || null,
       cliente_desde: form.cliente_desde || null,
+      is_cliente: form.is_cliente,
       display_chao: form.display_chao,
       display_balcao: form.display_balcao,
       display_parede: form.display_parede,
     }
 
+    let clienteId = id
     let error
+
     if (isEditing) {
       ;({ error } = await supabase.from('clientes').update(payload).eq('id', id))
     } else {
-      ;({ error } = await supabase.from('clientes').insert({ ...payload, vendedor_id: user!.id }))
+      const res = await supabase
+        .from('clientes')
+        .insert({ ...payload, vendedor_id: user!.id })
+        .select('id')
+        .single()
+      error = res.error
+      clienteId = res.data?.id
+    }
+
+    if (error) {
+      setLoading(false)
+      toast.error('Erro ao salvar cliente')
+      return
+    }
+
+    // Salva contatos: apaga os existentes e reinserir em ordem
+    const contatosValidos = contatos
+      .filter((c) => c.valor.trim())
+      .map((c, i) => ({
+        cliente_id: clienteId!,
+        tipo: c.tipo,
+        valor: c.tipo === 'telefone' ? unmask(c.valor) : c.valor.trim(),
+        rotulo: c.rotulo.trim() || null,
+        ordem: i,
+      }))
+
+    if (isEditing) {
+      await supabase.from('cliente_contatos').delete().eq('cliente_id', clienteId!)
+    }
+
+    if (contatosValidos.length > 0) {
+      const { error: errContatos } = await supabase
+        .from('cliente_contatos')
+        .insert(contatosValidos)
+      if (errContatos) {
+        setLoading(false)
+        toast.error('Cliente salvo, mas erro ao salvar contatos')
+        return
+      }
     }
 
     setLoading(false)
-    if (error) {
-      toast.error('Erro ao salvar cliente')
-    } else {
-      toast.success(isEditing ? 'Cliente atualizado' : 'Cliente cadastrado')
-      navigate(isEditing ? `/clientes/${id}` : '/clientes', { replace: true })
-    }
+    toast.success(isEditing ? 'Cliente atualizado' : 'Cliente cadastrado')
+    navigate(isEditing ? `/clientes/${clienteId}` : '/clientes', { replace: true })
   }
 
   if (loadingData) {
@@ -161,6 +250,31 @@ export default function ClienteForm() {
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Flag is_cliente */}
+        <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-gray-800">É cliente?</p>
+            <p className="text-xs text-gray-500">
+              {form.is_cliente ? 'Sim — cliente ativo' : 'Não — prospect / prospecção'}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.is_cliente}
+            onClick={() => set('is_cliente', !form.is_cliente)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              form.is_cliente ? 'bg-blue-600' : 'bg-gray-300'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 translate-x-1 rounded-full bg-white shadow transition-transform ${
+                form.is_cliente ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+
         <Field label="Nome Fantasia *" value={form.fantasia} onChange={(v) => set('fantasia', v)} autoComplete="organization" />
         <Field label="Razão Social" value={form.razao_social} onChange={(v) => set('razao_social', v)} />
 
@@ -223,18 +337,66 @@ export default function ClienteForm() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field
-            label="Telefone"
-            value={form.telefone}
-            onChange={(v) => set('telefone', maskTelefone(v))}
-            type="tel"
-            inputMode="tel"
-            placeholder="(00) 00000-0000"
-            maxLength={15}
-            autoComplete="tel"
-          />
-          <Field label="E-mail" value={form.email} onChange={(v) => set('email', v)} type="email" autoComplete="email" />
+        {/* Contatos dinâmicos */}
+        <div>
+          <p className="mb-2 text-sm font-medium text-gray-700">Contatos</p>
+          <div className="space-y-2">
+            {contatos.map((c, idx) => (
+              <div key={idx} className="flex items-start gap-2">
+                <select
+                  value={c.tipo}
+                  onChange={(e) => updateContato(idx, 'tipo', e.target.value)}
+                  className="h-11 rounded-lg border border-gray-300 px-2 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="telefone">Tel</option>
+                  <option value="email">Email</option>
+                </select>
+                <input
+                  type={c.tipo === 'email' ? 'email' : 'tel'}
+                  inputMode={c.tipo === 'telefone' ? 'tel' : 'email'}
+                  value={c.valor}
+                  onChange={(e) => updateContato(idx, 'valor', e.target.value)}
+                  placeholder={c.tipo === 'telefone' ? '(00) 00000-0000' : 'email@exemplo.com'}
+                  maxLength={c.tipo === 'telefone' ? 15 : 200}
+                  className="h-11 flex-1 rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  value={c.rotulo}
+                  onChange={(e) => updateContato(idx, 'rotulo', e.target.value)}
+                  placeholder="Rótulo"
+                  maxLength={100}
+                  className="h-11 w-28 rounded-lg border border-gray-300 px-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeContato(idx)}
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                  aria-label="Remover contato"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => addContato('telefone')}
+              className="flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 hover:border-blue-400 hover:text-blue-600"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Telefone
+            </button>
+            <button
+              type="button"
+              onClick={() => addContato('email')}
+              className="flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 hover:border-blue-400 hover:text-blue-600"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              E-mail
+            </button>
+          </div>
         </div>
 
         <Field label="Comprador" value={form.comprador} onChange={(v) => set('comprador', v)} />
