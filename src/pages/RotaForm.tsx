@@ -272,7 +272,7 @@ export default function RotaForm() {
   }
 
   return (
-    <div className="px-4 pt-4 pb-8">
+    <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-8">
       <button
         onClick={() => navigate(-1)}
         className="mb-4 flex items-center gap-1 text-sm text-gray-500"

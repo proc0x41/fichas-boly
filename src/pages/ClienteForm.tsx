@@ -307,7 +307,7 @@ export default function ClienteForm() {
   }
 
   return (
-    <div className="px-4 pt-4 pb-8">
+    <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-8">
       <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
         <ArrowLeft className="h-4 w-4" />
         Voltar
@@ -343,10 +343,12 @@ export default function ClienteForm() {
           </button>
         </div>
 
-        <Field label="Nome Fantasia *" value={form.fantasia} onChange={(v) => set('fantasia', v)} autoComplete="organization" />
-        <Field label="Razão Social" value={form.razao_social} onChange={(v) => set('razao_social', v)} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Nome Fantasia *" value={form.fantasia} onChange={(v) => set('fantasia', v)} autoComplete="organization" />
+          <Field label="Razão Social" value={form.razao_social} onChange={(v) => set('razao_social', v)} />
+        </div>
 
-        <div className="grid grid-cols-[1fr_auto] gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr]">
           <Field
             label="CNPJ"
             value={form.cnpj}
@@ -355,7 +357,7 @@ export default function ClienteForm() {
             placeholder="00.000.000/0000-00"
             maxLength={18}
           />
-          <div className="flex items-end">
+          <div className="-mt-3 flex items-end sm:mt-0">
             <button
               type="button"
               onClick={handleBuscarCNPJ}
@@ -379,40 +381,7 @@ export default function ClienteForm() {
           />
         </div>
 
-        <Field label="Endereço" value={form.endereco} onChange={(v) => set('endereco', v)} autoComplete="street-address" />
-
-        <div className="grid grid-cols-[auto_1fr] gap-3">
-          <Field
-            label="Número"
-            value={form.numero}
-            onChange={(v) => set('numero', v)}
-            inputMode="numeric"
-          />
-          <Field label="Complemento" value={form.complemento} onChange={(v) => set('complemento', v)} />
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Bairro" value={form.bairro} onChange={(v) => set('bairro', v)} className="col-span-2" />
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <Field
-            label="Cidade"
-            value={form.cidade}
-            onChange={(v) => set('cidade', v)}
-            autoComplete="address-level2"
-            className="col-span-2"
-          />
-          <Field
-            label="UF"
-            value={form.estado}
-            onChange={(v) => set('estado', v.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase())}
-            placeholder="SP"
-            maxLength={2}
-          />
-        </div>
-
-        <div className="grid grid-cols-[1fr_auto] gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_auto]">
           <Field
             label="CEP"
             value={form.cep}
@@ -422,7 +391,7 @@ export default function ClienteForm() {
             maxLength={9}
             autoComplete="postal-code"
           />
-          <div className="flex items-end">
+          <div className="-mt-3 flex items-end sm:mt-0">
             <button
               type="button"
               onClick={handleBuscarCEP}
@@ -437,6 +406,36 @@ export default function ClienteForm() {
               )}
             </button>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_auto_1fr]">
+          <Field label="Endereço" value={form.endereco} onChange={(v) => set('endereco', v)} autoComplete="street-address" />
+          <Field
+            label="Número"
+            value={form.numero}
+            onChange={(v) => set('numero', v)}
+            inputMode="numeric"
+            className="sm:w-24"
+          />
+          <Field label="Complemento" value={form.complemento} onChange={(v) => set('complemento', v)} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_2fr_auto]">
+          <Field label="Bairro" value={form.bairro} onChange={(v) => set('bairro', v)} />
+          <Field
+            label="Cidade"
+            value={form.cidade}
+            onChange={(v) => set('cidade', v)}
+            autoComplete="address-level2"
+          />
+          <Field
+            label="UF"
+            value={form.estado}
+            onChange={(v) => set('estado', v.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase())}
+            placeholder="SP"
+            maxLength={2}
+            className="sm:w-20"
+          />
         </div>
 
         {/* Contatos dinâmicos */}
@@ -501,9 +500,8 @@ export default function ClienteForm() {
           </div>
         </div>
 
-        <Field label="Comprador" value={form.comprador} onChange={(v) => set('comprador', v)} />
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Comprador" value={form.comprador} onChange={(v) => set('comprador', v)} />
           <Field
             label="Dia de Compras"
             value={form.dia_compras}
@@ -528,7 +526,7 @@ export default function ClienteForm() {
           <p className="mt-1 text-sm text-gray-500">Total: {total}</p>
         </div>
 
-        <LoadingButton type="submit" loading={loading} className="w-full">
+        <LoadingButton type="submit" loading={loading} className="w-full sm:w-auto sm:min-w-[12rem] sm:self-end">
           {isEditing ? 'Salvar Alterações' : 'Cadastrar Cliente'}
         </LoadingButton>
       </form>
