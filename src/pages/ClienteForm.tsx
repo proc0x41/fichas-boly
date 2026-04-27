@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Search } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE, unmask, validateCNPJ } from '../lib/masks'
+import { buscarCEP } from '../lib/cep'
+import { buscarCNPJ } from '../lib/cnpj'
 import toast from 'react-hot-toast'
 import type { ClienteContato } from '../types'
 
@@ -22,6 +24,7 @@ const emptyForm = {
   inscricao_estadual: '',
   endereco: '',
   numero: '',
+  complemento: '',
   bairro: '',
   cidade: '',
   estado: '',
@@ -46,6 +49,8 @@ export default function ClienteForm() {
   const [contatos, setContatos] = useState<ContatoRascunho[]>([emptyContato()])
   const [loading, setLoading] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
+  const [loadingCep, setLoadingCep] = useState(false)
+  const [loadingCnpj, setLoadingCnpj] = useState(false)
 
   useEffect(() => {
     if (isEditing && id) {
@@ -65,6 +70,7 @@ export default function ClienteForm() {
             inscricao_estadual: data.inscricao_estadual ?? '',
             endereco: data.endereco ?? '',
             numero: data.numero ?? '',
+            complemento: data.complemento ?? '',
             bairro: data.bairro ?? '',
             cidade: data.cidade ?? '',
             estado: data.estado ?? '',
@@ -124,6 +130,67 @@ export default function ClienteForm() {
       }),
     )
 
+  const handleBuscarCEP = async () => {
+    if (!form.cep) return
+    setLoadingCep(true)
+    try {
+      const dados = await buscarCEP(form.cep)
+      setForm((prev) => ({
+        ...prev,
+        endereco: prev.endereco || dados.logradouro,
+        bairro: prev.bairro || dados.bairro,
+        cidade: prev.cidade || dados.cidade,
+        estado: prev.estado || dados.uf,
+      }))
+      toast.success('Endereço encontrado')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao buscar CEP')
+    } finally {
+      setLoadingCep(false)
+    }
+  }
+
+  const handleBuscarCNPJ = async () => {
+    if (!form.cnpj) return
+    setLoadingCnpj(true)
+    try {
+      const dados = await buscarCNPJ(form.cnpj)
+      setForm((prev) => ({
+        ...prev,
+        razao_social: prev.razao_social || dados.razaoSocial,
+        fantasia: prev.fantasia || dados.nomeFantasia,
+        endereco: prev.endereco || dados.logradouro,
+        numero: prev.numero || dados.numero,
+        complemento: prev.complemento || dados.complemento,
+        bairro: prev.bairro || dados.bairro,
+        cidade: prev.cidade || dados.municipio,
+        estado: prev.estado || dados.uf,
+        cep: prev.cep || dados.cep,
+      }))
+
+      const contatoTelefone: ContatoRascunho = { tipo: 'telefone', valor: dados.telefone, rotulo: 'Principal' }
+      const contatoEmail: ContatoRascunho = { tipo: 'email', valor: dados.email, rotulo: 'Principal' }
+
+      setContatos((prev) => {
+        const novos: ContatoRascunho[] = []
+        if (dados.telefone && !prev.some((c) => c.tipo === 'telefone' && c.valor === dados.telefone)) {
+          novos.push(contatoTelefone)
+        }
+        if (dados.email && !prev.some((c) => c.tipo === 'email' && c.valor === dados.email)) {
+          novos.push(contatoEmail)
+        }
+        if (novos.length === 0) return prev
+        return [...novos, ...prev]
+      })
+
+      toast.success('Empresa encontrada')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao buscar CNPJ')
+    } finally {
+      setLoadingCnpj(false)
+    }
+  }
+
   const total = form.display_chao + form.display_balcao + form.display_parede
 
   const handleSubmit = async (e: FormEvent) => {
@@ -165,6 +232,7 @@ export default function ClienteForm() {
       inscricao_estadual: unmask(form.inscricao_estadual) || null,
       endereco: form.endereco || null,
       numero: form.numero || null,
+      complemento: form.complemento || null,
       bairro: form.bairro || null,
       cidade: form.cidade || null,
       estado: form.estado.trim().toUpperCase().slice(0, 2) || null,
@@ -278,7 +346,7 @@ export default function ClienteForm() {
         <Field label="Nome Fantasia *" value={form.fantasia} onChange={(v) => set('fantasia', v)} autoComplete="organization" />
         <Field label="Razão Social" value={form.razao_social} onChange={(v) => set('razao_social', v)} />
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-[1fr_auto] gap-3">
           <Field
             label="CNPJ"
             value={form.cnpj}
@@ -287,6 +355,21 @@ export default function ClienteForm() {
             placeholder="00.000.000/0000-00"
             maxLength={18}
           />
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={handleBuscarCNPJ}
+              disabled={!form.cnpj || loadingCnpj}
+              className="h-11 rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Buscar CNPJ"
+            >
+              {loadingCnpj ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+              ) : (
+                <Search className="h-5 w-5" />
+              )}
+            </button>
+          </div>
           <Field
             label="Inscrição Estadual"
             value={form.inscricao_estadual}
@@ -298,13 +381,17 @@ export default function ClienteForm() {
 
         <Field label="Endereço" value={form.endereco} onChange={(v) => set('endereco', v)} autoComplete="street-address" />
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-[auto_1fr] gap-3">
           <Field
             label="Número"
             value={form.numero}
             onChange={(v) => set('numero', v)}
             inputMode="numeric"
           />
+          <Field label="Complemento" value={form.complemento} onChange={(v) => set('complemento', v)} />
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
           <Field label="Bairro" value={form.bairro} onChange={(v) => set('bairro', v)} className="col-span-2" />
         </div>
 
@@ -325,7 +412,7 @@ export default function ClienteForm() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-[1fr_auto] gap-3">
           <Field
             label="CEP"
             value={form.cep}
@@ -335,6 +422,21 @@ export default function ClienteForm() {
             maxLength={9}
             autoComplete="postal-code"
           />
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={handleBuscarCEP}
+              disabled={!form.cep || loadingCep}
+              className="h-11 rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Buscar CEP"
+            >
+              {loadingCep ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+              ) : (
+                <Search className="h-5 w-5" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Contatos dinâmicos */}

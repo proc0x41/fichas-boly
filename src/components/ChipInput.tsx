@@ -18,7 +18,7 @@ interface Props {
   maxItems?: number
 }
 
-export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, maxItems = 200 }: Props) {
+export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, maxItems = 400 }: Props) {
   const [codigo, setCodigo] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [preview, setPreview] = useState<ProdutoPreview | null>(null)
