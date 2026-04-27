@@ -7,7 +7,8 @@ export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey)
 export const supabaseEnvError =
   'VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY devem estar definidas no ambiente da Vercel'
 
-export const supabase = createClient(
-  supabaseUrl ?? 'https://invalid-project.supabase.co',
-  supabaseAnonKey ?? 'invalid-anon-key',
-)
+if (!hasSupabaseEnv) {
+  throw new Error(supabaseEnvError)
+}
+
+export const supabase = createClient(supabaseUrl!, supabaseAnonKey!)

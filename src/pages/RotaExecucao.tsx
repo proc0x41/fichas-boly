@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ProgressBar } from '../components/ProgressBar'
@@ -26,12 +26,7 @@ export default function RotaExecucao() {
   const [finalizando, setFinalizando] = useState(false)
   const [finalizada, setFinalizada] = useState(false)
 
-  useEffect(() => {
-    if (!execucaoId) return
-    loadExecucao()
-  }, [execucaoId])
-
-  const loadExecucao = async () => {
+  const loadExecucao = useCallback(async () => {
     setLoading(true)
 
     const { data: exec } = await supabase
@@ -79,7 +74,12 @@ export default function RotaExecucao() {
       })),
     )
     setLoading(false)
-  }
+  }, [execucaoId])
+
+  useEffect(() => {
+    if (!execucaoId) return
+    loadExecucao()
+  }, [execucaoId, loadExecucao])
 
   const finalizarExecucao = async () => {
     if (!execucaoId) return

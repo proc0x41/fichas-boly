@@ -8,33 +8,7 @@ import type { Produto } from '../../types'
 import { PaginationBar } from '../../components/PaginationBar'
 import { SearchInput } from '../../components/SearchInput'
 import { fixUtf8MojibakeIfNeeded } from '../../lib/fixUtf8Mojibake'
-
-function normCodigo(c: string): string {
-  return c.trim().toLowerCase()
-}
-
-function parsePreco(v: unknown): number | null {
-  if (v === '' || v === null || v === undefined) return null
-  if (typeof v === 'number' && !Number.isNaN(v)) return v >= 0 ? v : null
-  const s = String(v).trim().replace(/\s/g, '').replace(',', '.')
-  const n = Number(s)
-  return Number.isFinite(n) && n >= 0 ? n : null
-}
-
-function getCell(row: Record<string, unknown>, ...aliases: string[]): string {
-  const keys = Object.keys(row)
-  for (const alias of aliases) {
-    const a = alias.trim().toLowerCase()
-    for (const k of keys) {
-      if (k.trim().toLowerCase() === a) {
-        const val = row[k]
-        if (val === null || val === undefined) return ''
-        return String(val).trim()
-      }
-    }
-  }
-  return ''
-}
+import { normCodigo, parsePreco, getCell } from '../../lib/utils'
 
 const PAGE_SIZE = 50
 

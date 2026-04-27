@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -33,12 +33,7 @@ export default function RotaDetalhe() {
   const [iniciando, setIniciando] = useState(false)
   const [deletando, setDeletando] = useState(false)
 
-  useEffect(() => {
-    if (!id) return
-    loadRota()
-  }, [id])
-
-  const loadRota = async () => {
+  const loadRota = useCallback(async () => {
     setLoading(true)
     const [{ data: rota }, { data: paradasData }, { data: execData }] = await Promise.all([
       supabase.from('rotas').select('nome').eq('id', id).single(),
@@ -71,7 +66,12 @@ export default function RotaDetalhe() {
       )
     }
     setLoading(false)
-  }
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    loadRota()
+  }, [id, loadRota])
 
   const iniciarRota = async () => {
     if (!user || !id) return

@@ -7,6 +7,7 @@ import { PaginationBar } from '../../components/PaginationBar'
 import { ArrowLeft, Loader2, Upload, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { unmask, validateCNPJ } from '../../lib/masks'
+import { getCell } from '../../lib/utils'
 
 const PAGE_SIZE = 25
 
@@ -24,21 +25,6 @@ interface VendedorOpt {
   user_id: string
   nome: string
   role: 'vendedor' | 'admin'
-}
-
-function getCell(row: Record<string, unknown>, ...aliases: string[]): string {
-  const keys = Object.keys(row)
-  for (const alias of aliases) {
-    const a = alias.trim().toLowerCase()
-    for (const k of keys) {
-      if (k.trim().toLowerCase() === a) {
-        const val = row[k]
-        if (val === null || val === undefined) return ''
-        return String(val).trim()
-      }
-    }
-  }
-  return ''
 }
 
 function parseOptionalNonNegInt(v: string, fallback: number): number {
@@ -297,7 +283,7 @@ export default function AdminClientes() {
       }
 
       let ok = 0
-      let err = parseErr
+      let _err = parseErr
 
       // Batch insert novos (1 request)
       if (novos.length > 0) {
@@ -306,7 +292,7 @@ export default function AdminClientes() {
           .insert(novos.map((r) => r.payload))
           .select('id, cnpj, fantasia')
         if (error) {
-          err += novos.length
+          _err += novos.length
           novos.forEach((r) => erroLinhas.push(r.fantasia))
         } else {
           ok += novos.length
@@ -357,7 +343,7 @@ export default function AdminClientes() {
                 display_parede: p.display_parede,
               })
               .eq('id', r.id)
-            if (error) { err++; erroLinhas.push(r.fantasia); return }
+            if (error) { _err++; erroLinhas.push(r.fantasia); return }
             ok++
             await upsertContatos(r.id, r.telefones, r.emails, clientesComContatos)
           }),

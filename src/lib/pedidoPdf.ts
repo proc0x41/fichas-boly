@@ -9,6 +9,7 @@ import {
   REPRESENTADA_TELEFONE,
 } from './pedidoPdfConfig'
 import { fixUtf8MojibakeIfNeeded } from './fixUtf8Mojibake'
+import { normCodigo, formatCNPJ } from './utils'
 
 export interface ProdutoCatalogo {
   codigo: string
@@ -50,10 +51,6 @@ const COL_TOTAL_BG: [number, number, number] = [236, 241, 247]
 /** Helvetica é a fonte nativa mais legível em PDF para texto misto (pt-BR, números, tabela). */
 const FONT_MAIN = 'helvetica' as const
 
-function normCodigo(c: string): string {
-  return c.trim().toLowerCase()
-}
-
 function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
@@ -66,13 +63,6 @@ function clampPct(n: number): number {
 function fmtPct(p: number): string {
   const x = clampPct(p)
   return `${x.toLocaleString('pt-BR', { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`
-}
-
-function fmtCNPJCliente(raw: string | null): string {
-  if (!raw) return '—'
-  const d = raw.replace(/\D/g, '')
-  if (d.length !== 14) return raw
-  return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
 }
 
 function getClienteContatos(cliente: Cliente): { telefones: string[]; emails: string[] } {
@@ -148,7 +138,7 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   const cliente = [
     input.cliente.razao_social ?? '—',
     input.cliente.fantasia ? `Nome fantasia: ${input.cliente.fantasia}` : null,
-    `CNPJ ${fmtCNPJCliente(input.cliente.cnpj)}`,
+                `CNPJ ${formatCNPJ(input.cliente.cnpj) ?? '—'}`,
     enderecoCliente || null,
     [input.cliente.bairro, input.cliente.cep ? `CEP ${input.cliente.cep}` : null].filter(Boolean).join('  ·  ') || null,
     [input.cliente.cidade, input.cliente.estado].filter(Boolean).join(' / ') || null,

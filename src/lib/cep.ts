@@ -23,8 +23,21 @@ interface BrasilApiCepResponse {
   street?: string
 }
 
+const FETCH_TIMEOUT = 8000 // 8 segundos
+
+async function fetchWithTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeout)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    return res
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function viaCep(cep: string): Promise<DadosCEP> {
-  const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
+  const res = await fetchWithTimeout(`https://viacep.com.br/ws/${cep}/json/`)
   if (!res.ok) throw new Error('CEP não encontrado')
   const data: ViaCepResponse = await res.json()
   if (data.erro) throw new Error('CEP não encontrado')
@@ -37,7 +50,7 @@ async function viaCep(cep: string): Promise<DadosCEP> {
 }
 
 async function brasilApiCep(cep: string): Promise<DadosCEP> {
-  const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`)
+  const res = await fetchWithTimeout(`https://brasilapi.com.br/api/cep/v2/${cep}`)
   if (!res.ok) throw new Error('CEP não encontrado')
   const data: BrasilApiCepResponse = await res.json()
   return {

@@ -10,6 +10,7 @@ import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } fr
 import { linkMercosWhatsApp, podeEnviarMercos } from '../lib/mercos'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { compartilharOuBaixarPdf } from '../lib/sharePedido'
+import { normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
 const statusOptions: { value: StatusVisita; label: string; color: string }[] = [
   { value: 'pendente', label: 'Pendente', color: 'bg-gray-100 text-gray-600 border-gray-300' },
@@ -17,24 +18,6 @@ const statusOptions: { value: StatusVisita; label: string; color: string }[] = [
   { value: 'nao_encontrado', label: 'Não encontrado', color: 'bg-red-50 text-red-700 border-red-400' },
   { value: 'reagendado', label: 'Reagendado', color: 'bg-yellow-50 text-yellow-700 border-yellow-400' },
 ]
-
-function parseMoneyInput(s: string): number {
-  const t = String(s).trim().replace(/\s/g, '').replace(',', '.')
-  const n = Number(t)
-  return Number.isFinite(n) && n >= 0 ? n : 0
-}
-
-/** Percentual 0–100; aceita vírgula ou ponto e símbolo %. */
-function parsePercentInput(s: string): number {
-  const t = String(s).trim().replace(/\s/g, '').replace('%', '').replace(',', '.')
-  const n = Number(t)
-  if (!Number.isFinite(n) || n < 0) return 0
-  return Math.min(100, n)
-}
-
-function normCodigo(c: string): string {
-  return c.trim().toLowerCase()
-}
 
 export default function VisitaForm() {
   const params = useParams()

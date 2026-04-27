@@ -147,14 +147,6 @@ export default function ClienteDetalhe() {
     },
   ]
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
-      </div>
-    )
-  }
-
   return (
     <div className="px-4 pt-4 pb-24">
       <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">

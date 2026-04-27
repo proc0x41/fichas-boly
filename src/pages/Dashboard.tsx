@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -50,12 +50,7 @@ export default function Dashboard() {
   const [iniciandoId, setIniciandoId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (!user) return
-    loadHome()
-  }, [user, cicloDias, listaRodadaDesde])
-
-  const loadHome = async () => {
+  const loadHome = useCallback(async () => {
     if (!user) return
 
     const { data: rotasData } = await supabase
@@ -137,7 +132,12 @@ export default function Dashboard() {
     setExecucoes(execucoesAtivas)
     setSugestao(execucoesAtivas.length === 0 ? pendentes[0] ?? null : null)
     setLoading(false)
-  }
+  }, [user, cicloDias, listaRodadaDesde])
+
+  useEffect(() => {
+    if (!user) return
+    loadHome()
+  }, [user, cicloDias, listaRodadaDesde, loadHome])
 
   const iniciarSugestao = async () => {
     if (!user || !sugestao) return
