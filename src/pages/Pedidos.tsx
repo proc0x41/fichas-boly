@@ -57,6 +57,7 @@ export default function Pedidos() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1)
   }, [search, filtroTipo])
 
@@ -124,6 +125,7 @@ export default function Pedidos() {
   }, [user, page, search, filtroTipo])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
 

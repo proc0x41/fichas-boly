@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -33,45 +33,54 @@ export default function RotaDetalhe() {
   const [iniciando, setIniciando] = useState(false)
   const [deletando, setDeletando] = useState(false)
 
-  const loadRota = useCallback(async () => {
-    setLoading(true)
-    const [{ data: rota }, { data: paradasData }, { data: execData }] = await Promise.all([
-      supabase.from('rotas').select('nome').eq('id', id).single(),
-      supabase
-        .from('rota_clientes')
-        .select('id, cliente_id, ordem, cliente:clientes(fantasia, bairro)')
-        .eq('rota_id', id)
-        .order('ordem'),
-      supabase
-        .from('rota_execucoes')
-        .select('id, iniciada_em, finalizada_em, visitas(id, status)')
-        .eq('rota_id', id)
-        .order('finalizada_em', { ascending: true, nullsFirst: true })
-        .order('iniciada_em', { ascending: false })
-        .limit(80),
-    ])
-
-    if (rota) setNome(rota.nome)
-    if (paradasData) setParadas(paradasData as unknown as ParadaTemplate[])
-    if (execData) {
-      setExecucoes(
-        (execData as { id: string; iniciada_em: string; finalizada_em: string | null; visitas: { status: string }[] }[]).map(
-          (e) => ({
-            id: e.id,
-            iniciada_em: e.iniciada_em,
-            finalizada_em: e.finalizada_em,
-            total_visitadas: (e.visitas ?? []).filter((v) => v.status === 'visitado').length,
-          }),
-        ),
-      )
-    }
-    setLoading(false)
-  }, [id])
-
   useEffect(() => {
     if (!id) return
+
+    let cancelled = false
+
+    const loadRota = async () => {
+      setLoading(true)
+      const [{ data: rota }, { data: paradasData }, { data: execData }] = await Promise.all([
+        supabase.from('rotas').select('nome').eq('id', id).single(),
+        supabase
+          .from('rota_clientes')
+          .select('id, cliente_id, ordem, cliente:clientes(fantasia, bairro)')
+          .eq('rota_id', id)
+          .order('ordem'),
+        supabase
+          .from('rota_execucoes')
+          .select('id, iniciada_em, finalizada_em, visitas(id, status)')
+          .eq('rota_id', id)
+          .order('finalizada_em', { ascending: true, nullsFirst: true })
+          .order('iniciada_em', { ascending: false })
+          .limit(80),
+      ])
+
+      if (cancelled) return
+
+      if (rota) setNome(rota.nome)
+      if (paradasData) setParadas(paradasData as unknown as ParadaTemplate[])
+      if (execData) {
+        setExecucoes(
+          (execData as { id: string; iniciada_em: string; finalizada_em: string | null; visitas: { status: string }[] }[]).map(
+            (e) => ({
+              id: e.id,
+              iniciada_em: e.iniciada_em,
+              finalizada_em: e.finalizada_em,
+              total_visitadas: (e.visitas ?? []).filter((v) => v.status === 'visitado').length,
+            }),
+          ),
+        )
+      }
+      setLoading(false)
+    }
+
     loadRota()
-  }, [id, loadRota])
+
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   const iniciarRota = async () => {
     if (!user || !id) return

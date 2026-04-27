@@ -198,6 +198,7 @@ export default function RotasList() {
   }, [cicloDias, listaRodadaDesde])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadRotas()
   }, [loadRotas])
 

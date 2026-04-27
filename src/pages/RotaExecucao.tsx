@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ProgressBar } from '../components/ProgressBar'
@@ -26,60 +26,69 @@ export default function RotaExecucao() {
   const [finalizando, setFinalizando] = useState(false)
   const [finalizada, setFinalizada] = useState(false)
 
-  const loadExecucao = useCallback(async () => {
-    setLoading(true)
-
-    const { data: exec } = await supabase
-      .from('rota_execucoes')
-      .select('id, finalizada_em, rota:rotas(id, nome)')
-      .eq('id', execucaoId)
-      .single()
-
-    if (!exec) {
-      setLoading(false)
-      return
-    }
-
-    const rota = exec.rota as unknown as { id: string; nome: string } | null
-    setNome(rota?.nome ?? '')
-    setRotaId(rota?.id ?? null)
-    setFinalizada(Boolean(exec.finalizada_em))
-
-    if (!rota?.id) {
-      setLoading(false)
-      return
-    }
-
-    const [{ data: paradasTemplate }, { data: visitasExec }] = await Promise.all([
-      supabase
-        .from('rota_clientes')
-        .select('cliente_id, ordem, cliente:clientes(fantasia, endereco, bairro, cidade)')
-        .eq('rota_id', rota.id)
-        .order('ordem'),
-      supabase
-        .from('visitas')
-        .select('id, cliente_id, status')
-        .eq('rota_execucao_id', execucaoId),
-    ])
-
-    const visitasPorCliente = new Map<string, { id: string; status: StatusVisita }>()
-    ;(visitasExec ?? []).forEach((v) => {
-      visitasPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita })
-    })
-
-    setParadas(
-      ((paradasTemplate ?? []) as unknown as Parada[]).map((p) => ({
-        ...p,
-        visita: visitasPorCliente.get(p.cliente_id) ?? null,
-      })),
-    )
-    setLoading(false)
-  }, [execucaoId])
-
   useEffect(() => {
     if (!execucaoId) return
+
+    let cancelled = false
+
+    const loadExecucao = async () => {
+      setLoading(true)
+
+      const { data: exec } = await supabase
+        .from('rota_execucoes')
+        .select('id, finalizada_em, rota:rotas(id, nome)')
+        .eq('id', execucaoId)
+        .single()
+
+      if (!exec || cancelled) {
+        if (!cancelled) setLoading(false)
+        return
+      }
+
+      const rota = exec.rota as unknown as { id: string; nome: string } | null
+      setNome(rota?.nome ?? '')
+      setRotaId(rota?.id ?? null)
+      setFinalizada(Boolean(exec.finalizada_em))
+
+      if (!rota?.id) {
+        setLoading(false)
+        return
+      }
+
+      const [{ data: paradasTemplate }, { data: visitasExec }] = await Promise.all([
+        supabase
+          .from('rota_clientes')
+          .select('cliente_id, ordem, cliente:clientes(fantasia, endereco, bairro, cidade)')
+          .eq('rota_id', rota.id)
+          .order('ordem'),
+        supabase
+          .from('visitas')
+          .select('id, cliente_id, status')
+          .eq('rota_execucao_id', execucaoId),
+      ])
+
+      if (cancelled) return
+
+      const visitasPorCliente = new Map<string, { id: string; status: StatusVisita }>()
+      ;(visitasExec ?? []).forEach((v) => {
+        visitasPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita })
+      })
+
+      setParadas(
+        ((paradasTemplate ?? []) as unknown as Parada[]).map((p) => ({
+          ...p,
+          visita: visitasPorCliente.get(p.cliente_id) ?? null,
+        })),
+      )
+      setLoading(false)
+    }
+
     loadExecucao()
-  }, [execucaoId, loadExecucao])
+
+    return () => {
+      cancelled = true
+    }
+  }, [execucaoId])
 
   const finalizarExecucao = async () => {
     if (!execucaoId) return

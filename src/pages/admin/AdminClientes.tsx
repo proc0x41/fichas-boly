@@ -172,7 +172,6 @@ export default function AdminClientes() {
         emails: string[]
       }
       const validas: RowParsed[] = []
-      let parseErr = 0
       const erroLinhas: string[] = []
 
       for (const row of rows) {
@@ -180,8 +179,8 @@ export default function AdminClientes() {
         if (!fantasia) continue
 
         const cnpjRaw = unmask(getCell(row, 'cnpj', 'cnpj cliente'))
-        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { parseErr++; erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
-        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { parseErr++; erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
+        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
+        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
 
         const estadoRaw = getCell(row, 'estado', 'uf').toUpperCase().slice(0, 2) || null
         const cepRaw = unmask(getCell(row, 'cep'))
@@ -283,7 +282,6 @@ export default function AdminClientes() {
       }
 
       let ok = 0
-      let _err = parseErr
 
       // Batch insert novos (1 request)
       if (novos.length > 0) {
@@ -292,7 +290,6 @@ export default function AdminClientes() {
           .insert(novos.map((r) => r.payload))
           .select('id, cnpj, fantasia')
         if (error) {
-          _err += novos.length
           novos.forEach((r) => erroLinhas.push(r.fantasia))
         } else {
           ok += novos.length
@@ -343,7 +340,7 @@ export default function AdminClientes() {
                 display_parede: p.display_parede,
               })
               .eq('id', r.id)
-            if (error) { _err++; erroLinhas.push(r.fantasia); return }
+            if (error) { erroLinhas.push(r.fantasia); return }
             ok++
             await upsertContatos(r.id, r.telefones, r.emails, clientesComContatos)
           }),

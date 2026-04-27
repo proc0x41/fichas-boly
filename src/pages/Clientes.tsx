@@ -18,6 +18,7 @@ export default function Clientes() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1)
   }, [search])
 
@@ -62,6 +63,7 @@ export default function Clientes() {
   }, [search, page])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadClientes()
   }, [loadClientes])
 

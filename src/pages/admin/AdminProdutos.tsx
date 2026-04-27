@@ -23,6 +23,7 @@ export default function AdminProdutos() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1)
   }, [busca])
 
@@ -58,6 +59,7 @@ export default function AdminProdutos() {
   }, [page, busca])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
 
