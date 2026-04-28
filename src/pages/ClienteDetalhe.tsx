@@ -397,7 +397,7 @@ export default function ClienteDetalhe() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <StatusBadge status={v.status as StatusVisita} />
+                  {v.tipo_visita === 'visita' && <StatusBadge status={v.status as StatusVisita} />}
                   <Link
                     to={`/clientes/${id}/visita/${v.id}/editar`}
                     className="flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600"
