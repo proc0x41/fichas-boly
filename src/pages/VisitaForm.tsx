@@ -38,6 +38,7 @@ export default function VisitaForm() {
   const [descontoPercent, setDescontoPercent] = useState('0')
   const [numeroPedido, setNumeroPedido] = useState<number | null>(null)
   const [itens, setItens] = useState<CodigoItem[]>([])
+  const isVisitaSimples = tipoVisita === 'visita'
   const [loading, setLoading] = useState(false)
   const [deletando, setDeletando] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
@@ -301,7 +302,7 @@ export default function VisitaForm() {
     return buildPedidoPdfBlob({
       numeroPedido: np,
       dataEmissao: new Date((row as { data_visita: string }).data_visita + 'T12:00:00'),
-      tipoVisita: tipoDoc,
+      tipoVisita: tipoDoc === 'visita' ? 'pedido' : tipoDoc,
       cliente,
       visita: {
         condicoes_pagamento: row.condicoes_pagamento as string | null,
@@ -393,7 +394,13 @@ export default function VisitaForm() {
     const resultado = await salvarDados()
     setLoading(false)
     if (!resultado) return
-    toast.success(tipoVisita === 'orcamento' ? 'Orçamento salvo' : 'Pedido salvo')
+    toast.success(
+      tipoVisita === 'orcamento'
+        ? 'Orçamento salvo'
+        : tipoVisita === 'visita'
+        ? 'Visita registrada'
+        : 'Pedido salvo',
+    )
     if (isEditing) {
       navigate(-1)
     } else {
@@ -411,7 +418,13 @@ export default function VisitaForm() {
       toast.error('Erro ao excluir')
       return
     }
-    toast.success(tipoVisita === 'orcamento' ? 'Orçamento excluído' : 'Pedido excluído')
+    toast.success(
+      tipoVisita === 'orcamento'
+        ? 'Orçamento excluído'
+        : tipoVisita === 'visita'
+        ? 'Visita excluída'
+        : 'Pedido excluído',
+    )
     navigate(-1)
   }
 
@@ -442,11 +455,19 @@ export default function VisitaForm() {
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-gray-900">
             {isEditing
-              ? (tipoVisita === 'orcamento' ? 'Editar Orçamento' : 'Editar Pedido')
-              : (tipoVisita === 'orcamento' ? 'Registrar Orçamento' : 'Registrar Pedido')}
+              ? tipoVisita === 'orcamento'
+                ? 'Editar Orçamento'
+                : tipoVisita === 'visita'
+                ? 'Editar Visita'
+                : 'Editar Pedido'
+              : tipoVisita === 'orcamento'
+              ? 'Registrar Orçamento'
+              : tipoVisita === 'visita'
+              ? 'Registrar Visita'
+              : 'Registrar Pedido'}
           </h2>
           {clienteNome && <p className="text-sm text-gray-500">{clienteNome}</p>}
-          {numeroPedido != null && (
+          {numeroPedido != null && !isVisitaSimples && (
             <p className="mt-1 text-xs font-medium text-primary-700">
               {tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'} nº {numeroPedido}
             </p>
@@ -468,8 +489,8 @@ export default function VisitaForm() {
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="mb-2 block text-xs font-medium text-gray-600">Tipo</label>
-          <div className="grid grid-cols-2 gap-2">
-            {(['pedido', 'orcamento'] as const).map((tipo) => (
+          <div className="grid grid-cols-3 gap-2">
+            {(['pedido', 'orcamento', 'visita'] as const).map((tipo) => (
               <button
                 key={tipo}
                 type="button"
@@ -480,10 +501,15 @@ export default function VisitaForm() {
                     : 'border-gray-200 bg-white text-gray-500'
                 }`}
               >
-                {tipo === 'pedido' ? 'Pedido' : 'Orçamento'}
+                {tipo === 'pedido' ? 'Pedido' : tipo === 'orcamento' ? 'Orçamento' : 'Visita'}
               </button>
             ))}
           </div>
+          {isVisitaSimples && (
+            <p className="mt-1 text-[11px] text-gray-400">
+              Visita sem pedido/orçamento. Não consome número de pedido nem gera PDF.
+            </p>
+          )}
         </div>
 
         <div>
@@ -516,35 +542,39 @@ export default function VisitaForm() {
           </div>
         </div>
 
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <label className="text-xs font-medium text-gray-600">Itens do Pedido</label>
-            <button
-              type="button"
-              onClick={carregarUltimaVisita}
-              className="flex items-center gap-1 text-xs font-medium text-primary-600"
-            >
-              <RotateCcw className="h-3 w-3" />
-              Reaproveitar última
-            </button>
+        {!isVisitaSimples && (
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-xs font-medium text-gray-600">Itens do Pedido</label>
+              <button
+                type="button"
+                onClick={carregarUltimaVisita}
+                className="flex items-center gap-1 text-xs font-medium text-primary-600"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reaproveitar última
+              </button>
+            </div>
+            <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} />
+            <p className="mt-1 text-[11px] text-gray-400">
+              Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
+            </p>
           </div>
-          <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} />
-          <p className="mt-1 text-[11px] text-gray-400">
-            Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
-          </p>
-        </div>
+        )}
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Condições de Pagamento</label>
-          <input
-            type="text"
-            value={condicoesPagamento}
-            onChange={(e) => setCondicoesPagamento(e.target.value)}
-            maxLength={500}
-            placeholder="Ex: 28/35/42 dias"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
-          />
-        </div>
+        {!isVisitaSimples && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Condições de Pagamento</label>
+            <input
+              type="text"
+              value={condicoesPagamento}
+              onChange={(e) => setCondicoesPagamento(e.target.value)}
+              maxLength={500}
+              placeholder="Ex: 28/35/42 dias"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
+            />
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">Observações</label>
@@ -558,71 +588,81 @@ export default function VisitaForm() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Valor do frete (opcional)</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={valorFrete}
-              onChange={(e) => setValorFrete(e.target.value)}
-              placeholder="0"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
-            />
+        {!isVisitaSimples && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Valor do frete (opcional)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={valorFrete}
+                onChange={(e) => setValorFrete(e.target.value)}
+                placeholder="0"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Desconto % (opcional)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={descontoPercent}
+                onChange={(e) => setDescontoPercent(e.target.value)}
+                placeholder="0"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
+              />
+              <p className="mt-0.5 text-[11px] text-gray-400">Sobre o preço de tabela em cada item (0 a 100).</p>
+            </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Desconto % (opcional)</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={descontoPercent}
-              onChange={(e) => setDescontoPercent(e.target.value)}
-              placeholder="0"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
-            />
-            <p className="mt-0.5 text-[11px] text-gray-400">Sobre o preço de tabela em cada item (0 a 100).</p>
-          </div>
-        </div>
+        )}
 
         <div className="space-y-2">
           <LoadingButton type="submit" loading={loading} className="w-full">
             {isEditing
               ? 'Salvar Alterações'
-              : (tipoVisita === 'orcamento' ? 'Salvar Orçamento' : 'Salvar Pedido')}
+              : tipoVisita === 'orcamento'
+              ? 'Salvar Orçamento'
+              : tipoVisita === 'visita'
+              ? 'Salvar Visita'
+              : 'Salvar Pedido'}
           </LoadingButton>
 
-          <button
-            type="button"
-            disabled={exportando || loading}
-            onClick={() => void handleExportarPdf()}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 disabled:opacity-50"
-          >
-            {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-            Exportar PDF do pedido
-          </button>
-          <button
-            type="button"
-            disabled={exportando || loading}
-            onClick={() => void handleEnviarCliente()}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:opacity-50"
-          >
-            <Share2 className="h-4 w-4" />
-            Enviar ao cliente (PDF + WhatsApp)
-          </button>
+          {!isVisitaSimples && (
+            <>
+              <button
+                type="button"
+                disabled={exportando || loading}
+                onClick={() => void handleExportarPdf()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 disabled:opacity-50"
+              >
+                {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Exportar PDF do pedido
+              </button>
+              <button
+                type="button"
+                disabled={exportando || loading}
+                onClick={() => void handleEnviarCliente()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:opacity-50"
+              >
+                <Share2 className="h-4 w-4" />
+                Enviar ao cliente (PDF + WhatsApp)
+              </button>
 
-          <button
-            type="button"
-            onClick={enviarMercos}
-            disabled={!canMercos}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-600 bg-white px-4 py-3 text-sm font-medium text-green-700 transition-colors active:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
-          >
-            <Send className="h-4 w-4" />
-            Enviar pedido para Mercos (WhatsApp)
-          </button>
-          {!canMercos && (
-            <p className="text-[11px] text-gray-400">
-              Para enviar: cliente precisa ter CNPJ cadastrado e ao menos 1 item.
-            </p>
+              <button
+                type="button"
+                onClick={enviarMercos}
+                disabled={!canMercos}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-600 bg-white px-4 py-3 text-sm font-medium text-green-700 transition-colors active:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
+              >
+                <Send className="h-4 w-4" />
+                Enviar pedido para Mercos (WhatsApp)
+              </button>
+              {!canMercos && (
+                <p className="text-[11px] text-gray-400">
+                  Para enviar: cliente precisa ter CNPJ cadastrado e ao menos 1 item.
+                </p>
+              )}
+            </>
           )}
         </div>
       </form>

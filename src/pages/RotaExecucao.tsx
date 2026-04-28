@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { ProgressBar } from '../components/ProgressBar'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, Loader2, MapPin, Check } from 'lucide-react'
+import { ArrowLeft, Loader2, MapPin, Check, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { StatusVisita } from '../types'
 
@@ -19,12 +20,14 @@ interface Parada {
 export default function RotaExecucao() {
   const { execucaoId } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [nome, setNome] = useState('')
   const [rotaId, setRotaId] = useState<string | null>(null)
   const [paradas, setParadas] = useState<Parada[]>([])
   const [loading, setLoading] = useState(true)
   const [finalizando, setFinalizando] = useState(false)
   const [finalizada, setFinalizada] = useState(false)
+  const [marcandoCliente, setMarcandoCliente] = useState<string | null>(null)
 
   useEffect(() => {
     if (!execucaoId) return
@@ -109,6 +112,36 @@ export default function RotaExecucao() {
 
   const visitados = paradas.filter((p) => p.visita?.status === 'visitado').length
 
+  const marcarApenasVisitada = async (clienteId: string) => {
+    if (!execucaoId || !user) return
+    setMarcandoCliente(clienteId)
+    const { data, error } = await supabase
+      .from('visitas')
+      .insert({
+        cliente_id: clienteId,
+        vendedor_id: user.id,
+        data_visita: new Date().toISOString().split('T')[0],
+        status: 'visitado',
+        tipo_visita: 'visita',
+        rota_execucao_id: execucaoId,
+      })
+      .select('id, status')
+      .single()
+    setMarcandoCliente(null)
+    if (error || !data) {
+      toast.error('Erro ao marcar visita')
+      return
+    }
+    setParadas((prev) =>
+      prev.map((p) =>
+        p.cliente_id === clienteId
+          ? { ...p, visita: { id: data.id as string, status: data.status as StatusVisita } }
+          : p,
+      ),
+    )
+    toast.success('Marcado como visitado')
+  }
+
   const statusColor = (status?: StatusVisita) => {
     switch (status) {
       case 'visitado': return 'border-l-green-500'
@@ -165,32 +198,53 @@ export default function RotaExecucao() {
       ) : (
         <div className="space-y-3">
           {paradas.map((parada, idx) => (
-            <Link
+            <div
               key={parada.cliente_id}
-              to={
-                parada.visita
-                  ? `/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}/${parada.visita.id}/editar`
-                  : `/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}`
-              }
-              className={`block rounded-xl border border-gray-200 border-l-4 bg-white p-4 transition-colors active:bg-gray-50 ${statusColor(parada.visita?.status)}`}
+              className={`relative rounded-xl border border-gray-200 border-l-4 bg-white transition-colors ${statusColor(parada.visita?.status)}`}
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
-                    {idx + 1}
-                  </span>
-                  <div>
-                    <p className="font-medium text-gray-900">{parada.cliente.fantasia}</p>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      {[parada.cliente.endereco, parada.cliente.bairro, parada.cliente.cidade]
-                        .filter(Boolean)
-                        .join(', ')}
-                    </p>
+              <Link
+                to={
+                  parada.visita
+                    ? `/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}/${parada.visita.id}/editar`
+                    : `/rotas/execucao/${execucaoId}/visita/${parada.cliente_id}`
+                }
+                className="block p-4 active:bg-gray-50"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
+                      {idx + 1}
+                    </span>
+                    <div>
+                      <p className="font-medium text-gray-900">{parada.cliente.fantasia}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {[parada.cliente.endereco, parada.cliente.bairro, parada.cliente.cidade]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </p>
+                    </div>
                   </div>
+                  <StatusBadge status={parada.visita?.status ?? 'pendente'} />
                 </div>
-                <StatusBadge status={parada.visita?.status ?? 'pendente'} />
-              </div>
-            </Link>
+              </Link>
+              {!finalizada && !parada.visita && (
+                <div className="flex justify-end border-t border-gray-100 px-4 py-2">
+                  <button
+                    type="button"
+                    disabled={marcandoCliente === parada.cliente_id}
+                    onClick={() => void marcarApenasVisitada(parada.cliente_id)}
+                    className="flex items-center gap-1 rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors active:bg-green-100 disabled:opacity-50"
+                  >
+                    {marcandoCliente === parada.cliente_id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                    Apenas visitar (sem pedido)
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}

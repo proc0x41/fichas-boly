@@ -29,6 +29,7 @@ const PAGE_SIZE = 30
 const tipoLabel: Record<TipoVisita, string> = {
   pedido: 'Pedido',
   orcamento: 'Orçamento',
+  visita: 'Visita',
 }
 
 const statusLabel: Record<StatusVisita, string> = {

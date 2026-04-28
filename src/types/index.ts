@@ -65,7 +65,13 @@ export interface Cliente {
 }
 
 export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado' | 'pedido'
-export type TipoVisita = 'pedido' | 'orcamento'
+/**
+ * Tipo do registro de visita:
+ * - `pedido`: pedido firme (gera número e PDF)
+ * - `orcamento`: orçamento (gera número e PDF, mas sem firmar venda)
+ * - `visita`: apenas registro de visita ao cliente (não consome número de pedido)
+ */
+export type TipoVisita = 'pedido' | 'orcamento' | 'visita'
 
 export interface Visita {
   id: string
@@ -78,7 +84,8 @@ export interface Visita {
   observacao: string | null
   condicoes_pagamento: string | null
   rota_execucao_id: string | null
-  numero_pedido?: number
+  /** Null em visitas do tipo 'visita' (que não consomem a sequência). */
+  numero_pedido?: number | null
   valor_frete?: number
   /** Desconto único do pedido em % sobre preço de tabela (0–100). */
   desconto_percent?: number
