@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type FormEvent } from 'react'
+import { useEffect, useState, useCallback, useMemo, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -49,6 +49,36 @@ export default function VisitaForm() {
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
   const [clienteTelefone, setClienteTelefone] = useState<string | null>(null)
   const [catalogoProdutos, setCatalogoProdutos] = useState<Map<string, ProdutoPreview> | null>(null)
+
+  const totais = useMemo(() => {
+    const pct = parsePercentInput(descontoPercent)
+    const fatorLiq = 1 - pct / 100
+    const frete = parseMoneyInput(valorFrete)
+    let totalTabela = 0
+    let totalLiquido = 0
+    let itensSemPreco = 0
+    for (const it of itens) {
+      const prod = catalogoProdutos?.get(normCodigo(it.codigo)) ?? null
+      const preco = prod?.preco_tabela ?? 0
+      if (!prod) itensSemPreco += 1
+      totalTabela += preco * it.quantidade
+      totalLiquido += preco * fatorLiq * it.quantidade
+    }
+    const desconto = Math.max(0, totalTabela - totalLiquido)
+    return {
+      totalTabela,
+      totalLiquido,
+      desconto,
+      pct,
+      frete,
+      total: totalLiquido + frete,
+      qtdItens: itens.reduce((s, i) => s + i.quantidade, 0),
+      itensSemPreco,
+    }
+  }, [itens, descontoPercent, valorFrete, catalogoProdutos])
+
+  const fmtBRL = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   useEffect(() => {
     supabase
@@ -618,6 +648,50 @@ export default function VisitaForm() {
               />
               <p className="mt-0.5 text-[11px] text-gray-400">Sobre o preço de tabela em cada item (0 a 100).</p>
             </div>
+          </div>
+        )}
+
+        {!isVisitaSimples && itens.length > 0 && (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Resumo
+              </span>
+              <span className="text-[11px] text-gray-400">
+                {itens.length} {itens.length === 1 ? 'item' : 'itens'} · {totais.qtdItens} un
+              </span>
+            </div>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between text-gray-600">
+                <dt>Subtotal (tabela)</dt>
+                <dd className="tabular-nums">{fmtBRL(totais.totalTabela)}</dd>
+              </div>
+              {totais.pct > 0 && (
+                <div className="flex justify-between text-red-600">
+                  <dt>
+                    Desconto ({totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)
+                  </dt>
+                  <dd className="tabular-nums">- {fmtBRL(totais.desconto)}</dd>
+                </div>
+              )}
+              {totais.frete > 0 && (
+                <div className="flex justify-between text-gray-600">
+                  <dt>Frete</dt>
+                  <dd className="tabular-nums">{fmtBRL(totais.frete)}</dd>
+                </div>
+              )}
+              <div className="mt-2 flex justify-between border-t border-gray-200 pt-2 text-base font-bold text-gray-900">
+                <dt>Total</dt>
+                <dd className="tabular-nums text-primary-700">{fmtBRL(totais.total)}</dd>
+              </div>
+            </dl>
+            {totais.itensSemPreco > 0 && (
+              <p className="mt-2 text-[11px] text-amber-700">
+                ⚠ {totais.itensSemPreco}{' '}
+                {totais.itensSemPreco === 1 ? 'item não cadastrado' : 'itens não cadastrados'}{' '}
+                no catálogo — não somam ao total.
+              </p>
+            )}
           </div>
         )}
 
