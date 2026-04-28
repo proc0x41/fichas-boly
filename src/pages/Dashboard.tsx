@@ -52,92 +52,101 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return
-    loadHome()
-  }, [user, cicloDias, listaRodadaDesde])
 
-  const loadHome = async () => {
-    if (!user) return
+    let cancelled = false
 
-    const { data: rotasData } = await supabase
-      .from('rotas')
-      .select(
-        'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status))',
-      )
-      .eq('ativo', true)
-      .order('ordem', { ascending: true })
-
-    if (!rotasData) {
-      setSugestao(null)
-      setExecucoes([])
-      setLoading(false)
-      return
-    }
-
-    const rotas = rotasData as unknown as {
-      id: string
-      nome: string
-      paradas: {
-        id: string
-        cliente_id: string
-        ordem: number
-        cliente: { fantasia: string; bairro: string | null } | null
-      }[]
-      execucoes: {
-        id: string
-        iniciada_em: string
-        finalizada_em: string | null
-        visitas: { id: string; cliente_id: string; status: string }[]
-      }[]
-    }[]
-
-    const execucoesAtivas: ExecucaoAtiva[] = []
-    const pendentes: Sugestao[] = []
-
-    for (const r of rotas) {
-      const paradas = (r.paradas ?? []).slice().sort((a, b) => a.ordem - b.ordem)
-      const totalParadas = paradas.length
-      const status = calcularStatusCiclo(r.execucoes ?? [], cicloDias, new Date(), listaRodadaDesde)
-
-      const ativa = (r.execucoes ?? []).find((e) => !e.finalizada_em)
-      if (ativa) {
-        const visitaPorCliente = new Map<string, { id: string; status: StatusVisita }>()
-        ;(ativa.visitas ?? []).forEach((v) =>
-          visitaPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita }),
+    const loadHome = async () => {
+      const { data: rotasData } = await supabase
+        .from('rotas')
+        .select(
+          'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status))',
         )
-        const listaStatus = paradas.map((p) => {
-          const v = visitaPorCliente.get(p.cliente_id)
-          return {
-            cliente_id: p.cliente_id,
-            cliente_nome: p.cliente?.fantasia ?? '',
-            bairro: p.cliente?.bairro ?? null,
-            ordem: p.ordem,
-            status: (v?.status ?? 'pendente') as StatusVisita,
-            visita_id: v?.id ?? null,
-          }
-        })
-        execucoesAtivas.push({
-          id: ativa.id,
-          nome: r.nome,
-          iniciada_em: ativa.iniciada_em,
-          total: totalParadas,
-          visitados: listaStatus.filter((p) => p.status === 'visitado').length,
-          proximas: listaStatus.filter((p) => p.status !== 'visitado').slice(0, 3),
-        })
-      } else if (!status.feita && totalParadas > 0) {
-        pendentes.push({ rota_id: r.id, nome: r.nome, total_clientes: totalParadas, status })
+        .eq('ativo', true)
+        .order('ordem', { ascending: true })
+
+      if (cancelled) return
+
+      if (!rotasData) {
+        setSugestao(null)
+        setExecucoes([])
+        setLoading(false)
+        return
+      }
+
+      const rotas = rotasData as unknown as {
+        id: string
+        nome: string
+        paradas: {
+          id: string
+          cliente_id: string
+          ordem: number
+          cliente: { fantasia: string; bairro: string | null } | null
+        }[]
+        execucoes: {
+          id: string
+          iniciada_em: string
+          finalizada_em: string | null
+          visitas: { id: string; cliente_id: string; status: string }[]
+        }[]
+      }[]
+
+      const execucoesAtivas: ExecucaoAtiva[] = []
+      const pendentes: Sugestao[] = []
+
+      for (const r of rotas) {
+        const paradas = (r.paradas ?? []).slice().sort((a, b) => a.ordem - b.ordem)
+        const totalParadas = paradas.length
+        const status = calcularStatusCiclo(r.execucoes ?? [], cicloDias, new Date(), listaRodadaDesde)
+
+        const ativa = (r.execucoes ?? []).find((e) => !e.finalizada_em)
+        if (ativa) {
+          const visitaPorCliente = new Map<string, { id: string; status: StatusVisita }>()
+          ;(ativa.visitas ?? []).forEach((v) =>
+            visitaPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita }),
+          )
+          const listaStatus = paradas.map((p) => {
+            const v = visitaPorCliente.get(p.cliente_id)
+            return {
+              cliente_id: p.cliente_id,
+              cliente_nome: p.cliente?.fantasia ?? '',
+              bairro: p.cliente?.bairro ?? null,
+              ordem: p.ordem,
+              status: (v?.status ?? 'pendente') as StatusVisita,
+              visita_id: v?.id ?? null,
+            }
+          })
+          execucoesAtivas.push({
+            id: ativa.id,
+            nome: r.nome,
+            iniciada_em: ativa.iniciada_em,
+            total: totalParadas,
+            visitados: listaStatus.filter((p) => p.status === 'visitado').length,
+            proximas: listaStatus.filter((p) => p.status !== 'visitado').slice(0, 3),
+          })
+        } else if (!status.feita && totalParadas > 0) {
+          pendentes.push({ rota_id: r.id, nome: r.nome, total_clientes: totalParadas, status })
+        }
+      }
+
+      pendentes.sort((a, b) => {
+        const da = a.status.diasDesdeUltima ?? Number.POSITIVE_INFINITY
+        const db = b.status.diasDesdeUltima ?? Number.POSITIVE_INFINITY
+        return db - da
+      })
+
+      if (!cancelled) {
+        setExecucoes(execucoesAtivas)
+        setSugestao(execucoesAtivas.length === 0 ? pendentes[0] ?? null : null)
+        setLoading(false)
       }
     }
 
-    pendentes.sort((a, b) => {
-      const da = a.status.diasDesdeUltima ?? Number.POSITIVE_INFINITY
-      const db = b.status.diasDesdeUltima ?? Number.POSITIVE_INFINITY
-      return db - da
-    })
+    loadHome()
 
-    setExecucoes(execucoesAtivas)
-    setSugestao(execucoesAtivas.length === 0 ? pendentes[0] ?? null : null)
-    setLoading(false)
-  }
+    return () => {
+      cancelled = true
+    }
+  }, [user, cicloDias, listaRodadaDesde])
 
   const iniciarSugestao = async () => {
     if (!user || !sugestao) return

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   DndContext,
@@ -162,11 +162,7 @@ export default function RotasList() {
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   )
 
-  useEffect(() => {
-    void loadRotas()
-  }, [cicloDias, listaRodadaDesde])
-
-  const loadRotas = async (listaRodadaParam?: string | null) => {
+  const loadRotas = useCallback(async (listaRodadaParam?: string | null) => {
     const listaEfetivo = listaRodadaParam !== undefined ? listaRodadaParam : listaRodadaDesde
     setLoading(true)
     const { data } = await supabase
@@ -199,7 +195,12 @@ export default function RotasList() {
       )
     }
     setLoading(false)
-  }
+  }, [cicloDias, listaRodadaDesde])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadRotas()
+  }, [loadRotas])
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event

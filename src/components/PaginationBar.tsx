@@ -13,11 +13,8 @@ export function PaginationBar({ page, pageSize, total, onPageChange, className =
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-3 text-sm text-gray-600 ${className}`}
+      className={`flex flex-col items-center gap-2 border-t border-gray-200 pt-3 text-sm text-gray-600 ${className}`}
     >
-      <span>
-        {total === 0 ? 'Nenhum registro' : `Mostrando ${from}–${to} de ${total}`}
-      </span>
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -39,6 +36,9 @@ export function PaginationBar({ page, pageSize, total, onPageChange, className =
           Próxima
         </button>
       </div>
+      <span className="text-xs text-gray-500">
+        {total === 0 ? 'Nenhum registro' : `Mostrando ${from}–${to} de ${total}`}
+      </span>
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { PaginationBar } from '../../components/PaginationBar'
 import { ArrowLeft, Loader2, Upload, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { unmask, validateCNPJ } from '../../lib/masks'
+import { getCell } from '../../lib/utils'
 
 const PAGE_SIZE = 25
 
@@ -24,21 +25,6 @@ interface VendedorOpt {
   user_id: string
   nome: string
   role: 'vendedor' | 'admin'
-}
-
-function getCell(row: Record<string, unknown>, ...aliases: string[]): string {
-  const keys = Object.keys(row)
-  for (const alias of aliases) {
-    const a = alias.trim().toLowerCase()
-    for (const k of keys) {
-      if (k.trim().toLowerCase() === a) {
-        const val = row[k]
-        if (val === null || val === undefined) return ''
-        return String(val).trim()
-      }
-    }
-  }
-  return ''
 }
 
 function parseOptionalNonNegInt(v: string, fallback: number): number {
@@ -186,7 +172,6 @@ export default function AdminClientes() {
         emails: string[]
       }
       const validas: RowParsed[] = []
-      let parseErr = 0
       const erroLinhas: string[] = []
 
       for (const row of rows) {
@@ -194,8 +179,8 @@ export default function AdminClientes() {
         if (!fantasia) continue
 
         const cnpjRaw = unmask(getCell(row, 'cnpj', 'cnpj cliente'))
-        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { parseErr++; erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
-        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { parseErr++; erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
+        if (cnpjRaw.length > 0 && cnpjRaw.length !== 14) { erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
+        if (cnpjRaw.length === 14 && !validateCNPJ(cnpjRaw)) { erroLinhas.push(`${fantasia} (CNPJ inválido)`); continue }
 
         const estadoRaw = getCell(row, 'estado', 'uf').toUpperCase().slice(0, 2) || null
         const cepRaw = unmask(getCell(row, 'cep'))
@@ -297,7 +282,6 @@ export default function AdminClientes() {
       }
 
       let ok = 0
-      let err = parseErr
 
       // Batch insert novos (1 request)
       if (novos.length > 0) {
@@ -306,7 +290,6 @@ export default function AdminClientes() {
           .insert(novos.map((r) => r.payload))
           .select('id, cnpj, fantasia')
         if (error) {
-          err += novos.length
           novos.forEach((r) => erroLinhas.push(r.fantasia))
         } else {
           ok += novos.length
@@ -357,7 +340,7 @@ export default function AdminClientes() {
                 display_parede: p.display_parede,
               })
               .eq('id', r.id)
-            if (error) { err++; erroLinhas.push(r.fantasia); return }
+            if (error) { erroLinhas.push(r.fantasia); return }
             ok++
             await upsertContatos(r.id, r.telefones, r.emails, clientesComContatos)
           }),

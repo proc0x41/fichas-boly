@@ -4,12 +4,21 @@ import { supabase } from '../lib/supabase'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
-import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2 } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
+import { normCodigo } from '../lib/utils'
 import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita, TipoVisita } from '../types'
 
 type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
+
+interface ProdutoCliente {
+  codigo: string
+  descricao: string | null
+  quantidadeTotal: number
+  vezesPedido: number
+  ultimaCompra: string
+}
 
 const VISITAS_PAGE_SIZE = 15
 
@@ -22,6 +31,7 @@ export default function ClienteDetalhe() {
   const [visitasTotal, setVisitasTotal] = useState(0)
   const [visitasPage, setVisitasPage] = useState(1)
   const [filtroTipo, setFiltroTipo] = useState<'todos' | TipoVisita>('todos')
+  const [produtosCliente, setProdutosCliente] = useState<ProdutoCliente[]>([])
   const [loading, setLoading] = useState(true)
   const [deletando, setDeletando] = useState(false)
   const lastClienteIdRef = useRef<string | undefined>(undefined)
@@ -89,6 +99,69 @@ export default function ClienteDetalhe() {
     }
   }, [id, visitasPage, filtroTipo])
 
+  // Lista agregada de produtos comprados pelo cliente (apenas pedidos firmes).
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    ;(async () => {
+      const { data: pedidos, error } = await supabase
+        .from('visitas')
+        .select('data_visita, codigos:visita_codigos(codigo, quantidade)')
+        .eq('cliente_id', id)
+        .eq('tipo_visita', 'pedido')
+        .order('data_visita', { ascending: false })
+      if (cancelled || error || !pedidos) {
+        if (!cancelled) setProdutosCliente([])
+        return
+      }
+
+      const agregado = new Map<string, ProdutoCliente>()
+      for (const p of pedidos as Array<{ data_visita: string; codigos: { codigo: string; quantidade: number }[] }>) {
+        for (const c of p.codigos ?? []) {
+          const key = normCodigo(c.codigo)
+          const existente = agregado.get(key)
+          if (existente) {
+            existente.quantidadeTotal += c.quantidade
+            existente.vezesPedido += 1
+            if (p.data_visita > existente.ultimaCompra) existente.ultimaCompra = p.data_visita
+          } else {
+            agregado.set(key, {
+              codigo: c.codigo,
+              descricao: null,
+              quantidadeTotal: c.quantidade,
+              vezesPedido: 1,
+              ultimaCompra: p.data_visita,
+            })
+          }
+        }
+      }
+
+      if (agregado.size > 0) {
+        const { data: produtos } = await supabase
+          .from('produtos')
+          .select('codigo, descricao')
+        if (cancelled) return
+        const descPorCodigo = new Map<string, string>()
+        for (const pr of produtos ?? []) {
+          descPorCodigo.set(normCodigo(pr.codigo), pr.descricao)
+        }
+        for (const [key, item] of agregado) {
+          const desc = descPorCodigo.get(key)
+          if (desc) item.descricao = desc
+        }
+      }
+
+      const lista = Array.from(agregado.values()).sort((a, b) => {
+        if (b.ultimaCompra !== a.ultimaCompra) return b.ultimaCompra.localeCompare(a.ultimaCompra)
+        return b.quantidadeTotal - a.quantidadeTotal
+      })
+      setProdutosCliente(lista)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -146,14 +219,6 @@ export default function ClienteDetalhe() {
       value: `Chão: ${cliente.display_chao} | Balcão: ${cliente.display_balcao} | Parede: ${cliente.display_parede} (Total: ${cliente.total_itens})`,
     },
   ]
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
-      </div>
-    )
-  }
 
   return (
     <div className="px-4 pt-4 pb-24">
@@ -239,11 +304,48 @@ export default function ClienteDetalhe() {
       </div>
 
       <h3 className="mb-2 text-sm font-semibold text-gray-500 uppercase tracking-wide">
+        Produtos comprados
+      </h3>
+      {produtosCliente.length === 0 ? (
+        <div className="mb-6 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs text-gray-400">
+          Nenhum produto comprado ainda. Os itens dos pedidos aparecerão aqui automaticamente.
+        </div>
+      ) : (
+        <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <Package className="h-3.5 w-3.5" />
+            <span>{produtosCliente.length} {produtosCliente.length === 1 ? 'produto' : 'produtos'}</span>
+          </div>
+          <ul className="divide-y divide-gray-100">
+            {produtosCliente.map((p) => (
+              <li key={p.codigo} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{p.codigo}</p>
+                    {p.descricao && (
+                      <p className="truncate text-xs text-gray-500">{p.descricao}</p>
+                    )}
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      Última compra: {new Date(p.ultimaCompra + 'T12:00:00').toLocaleDateString('pt-BR')}
+                      {p.vezesPedido > 1 && ` · ${p.vezesPedido} pedidos`}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                    {p.quantidadeTotal} un
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <h3 className="mb-2 text-sm font-semibold text-gray-500 uppercase tracking-wide">
         Histórico de Pedidos e Orçamentos
       </h3>
 
       <div className="mb-3 flex gap-2">
-        {([['todos', 'Todos'], ['pedido', 'Pedidos'], ['orcamento', 'Orçamentos']] as const).map(
+        {([['todos', 'Todos'], ['pedido', 'Pedidos'], ['orcamento', 'Orçamentos'], ['visita', 'Visitas']] as const).map(
           ([val, label]) => (
             <button
               key={val}
@@ -282,10 +384,16 @@ export default function ClienteDetalhe() {
                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       v.tipo_visita === 'orcamento'
                         ? 'bg-amber-100 text-amber-700'
+                        : v.tipo_visita === 'visita'
+                        ? 'bg-gray-100 text-gray-600'
                         : 'bg-blue-100 text-blue-700'
                     }`}
                   >
-                    {v.tipo_visita === 'orcamento' ? 'Orçamento' : 'Pedido'}
+                    {v.tipo_visita === 'orcamento'
+                      ? 'Orçamento'
+                      : v.tipo_visita === 'visita'
+                      ? 'Visita'
+                      : 'Pedido'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">

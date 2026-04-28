@@ -59,8 +59,21 @@ function formatCEP(raw: string): string {
   return `${digits.slice(0, 5)}-${digits.slice(5)}`
 }
 
+const FETCH_TIMEOUT = 10000 // 10 segundos
+
+async function fetchWithTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeout)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    return res
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function buscarBrasilAPI(cnpj: string): Promise<DadosCNPJ> {
-  const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
+  const res = await fetchWithTimeout(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
   if (!res.ok) {
     throw new Error('CNPJ não encontrado')
   }
@@ -84,7 +97,7 @@ async function buscarBrasilAPI(cnpj: string): Promise<DadosCNPJ> {
 }
 
 async function buscarOpenCNPJ(cnpj: string): Promise<DadosCNPJ> {
-  const res = await fetch(`https://api.opencnpj.org/${cnpj}`)
+  const res = await fetchWithTimeout(`https://api.opencnpj.org/${cnpj}`)
   if (!res.ok) {
     throw new Error('CNPJ não encontrado')
   }
