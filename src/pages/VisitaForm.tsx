@@ -12,8 +12,9 @@ import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { compartilharOuBaixarPdf } from '../lib/sharePedido'
 import { normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
+// Status só é mostrado quando tipo_visita = 'visita' (parada sem pedido).
+// Pedido/orçamento são sempre 'visitado' implicitamente.
 const statusOptions: { value: StatusVisita; label: string; color: string }[] = [
-  { value: 'pendente', label: 'Pendente', color: 'bg-gray-100 text-gray-600 border-gray-300' },
   { value: 'visitado', label: 'Visitado', color: 'bg-green-50 text-green-700 border-green-400' },
   { value: 'nao_encontrado', label: 'Não encontrado', color: 'bg-red-50 text-red-700 border-red-400' },
   { value: 'reagendado', label: 'Reagendado', color: 'bg-yellow-50 text-yellow-700 border-yellow-400' },
@@ -190,13 +191,15 @@ export default function VisitaForm() {
     if (!clienteId || !user) return null
     const vf = parseMoneyInput(valorFrete)
     const dp = parsePercentInput(descontoPercent)
+    // Pedido/orçamento implicam visita bem-sucedida; status só é escolhido para tipo='visita'.
+    const statusEfetivo: StatusVisita = tipoVisita === 'visita' ? status : 'visitado'
 
     if (isEditing && visitaId) {
       const { error } = await supabase
         .from('visitas')
         .update({
           data_visita: dataVisita,
-          status,
+          status: statusEfetivo,
           tipo_visita: tipoVisita,
           observacao: observacao.trim() || null,
           condicoes_pagamento: condicoesPagamento.trim() || null,
@@ -221,7 +224,7 @@ export default function VisitaForm() {
       cliente_id: clienteId,
       vendedor_id: user.id,
       data_visita: dataVisita,
-      status,
+      status: statusEfetivo,
       tipo_visita: tipoVisita,
       observacao: observacao.trim() || null,
       condicoes_pagamento: condicoesPagamento.trim() || null,
@@ -522,25 +525,27 @@ export default function VisitaForm() {
           />
         </div>
 
-        <div>
-          <label className="mb-2 block text-xs font-medium text-gray-600">Status</label>
-          <div className="grid grid-cols-2 gap-2">
-            {statusOptions.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setStatus(opt.value)}
-                className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-all ${
-                  status === opt.value
-                    ? opt.color + ' border-current'
-                    : 'border-gray-200 bg-white text-gray-500'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {isVisitaSimples && (
+          <div>
+            <label className="mb-2 block text-xs font-medium text-gray-600">Resultado da visita</label>
+            <div className="grid grid-cols-3 gap-2">
+              {statusOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setStatus(opt.value)}
+                  className={`rounded-lg border-2 px-2 py-2.5 text-xs font-medium transition-all ${
+                    status === opt.value
+                      ? opt.color + ' border-current'
+                      : 'border-gray-200 bg-white text-gray-500'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {!isVisitaSimples && (
           <div>
