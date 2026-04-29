@@ -34,8 +34,31 @@ export default function Clientes() {
       .range(from, to)
 
     if (search.trim()) {
-      const query = search.trim()
-      q = q.or(`fantasia.ilike.%${query}%,cnpj.ilike.%${query}%,bairro.ilike.%${query}%`)
+      // PostgREST .or() trata vírgulas e parênteses como separadores; remover do termo de busca
+      const query = search.trim().replace(/[(),]/g, ' ').replace(/\s+/g, ' ')
+      const digits = query.replace(/\D/g, '')
+      const fields = [
+        'fantasia',
+        'razao_social',
+        'cnpj',
+        'inscricao_estadual',
+        'endereco',
+        'bairro',
+        'cidade',
+        'estado',
+        'cep',
+        'comprador',
+        'telefone',
+        'email',
+      ]
+      const conditions = fields.map((f) => `${f}.ilike.%${query}%`)
+      // Se o termo tem dígitos, busca também por cnpj/cep/telefone só pelos dígitos (mascarados ou não)
+      if (digits && digits !== query) {
+        conditions.push(`cnpj.ilike.%${digits}%`)
+        conditions.push(`cep.ilike.%${digits}%`)
+        conditions.push(`telefone.ilike.%${digits}%`)
+      }
+      q = q.or(conditions.join(','))
     }
 
     const { data, count, error } = await q
@@ -76,7 +99,7 @@ export default function Clientes() {
       <SearchInput
         value={search}
         onChange={setSearch}
-        placeholder="Buscar por nome, CNPJ ou bairro..."
+        placeholder="Buscar por nome, razão social, CNPJ, endereço, comprador..."
       />
 
       <div className="mt-4 space-y-3">
