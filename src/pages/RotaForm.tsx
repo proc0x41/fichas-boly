@@ -28,6 +28,7 @@ interface ClienteItem {
   id: string
   fantasia: string
   bairro: string | null
+  is_cliente: boolean
 }
 
 function SortableCliente({
@@ -55,7 +56,14 @@ function SortableCliente({
         {index + 1}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-800">{item.fantasia}</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="truncate text-sm font-medium text-gray-800">{item.fantasia}</p>
+          {!item.is_cliente && (
+            <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+              Prospect
+            </span>
+          )}
+        </div>
         {item.bairro && <p className="text-xs text-gray-400">{item.bairro}</p>}
       </div>
       <button type="button" onClick={onRemove} className="text-gray-400 hover:text-red-500">
@@ -90,7 +98,7 @@ export default function RotaForm() {
         supabase.from('rotas').select('nome').eq('id', rotaId).single(),
         supabase
           .from('rota_clientes')
-          .select('cliente_id, ordem, cliente:clientes(id, fantasia, bairro)')
+          .select('cliente_id, ordem, cliente:clientes(id, fantasia, bairro, is_cliente)')
           .eq('rota_id', rotaId)
           .order('ordem'),
       ])
@@ -98,13 +106,14 @@ export default function RotaForm() {
       if (paradas) {
         setClientesSelecionados(
           (paradas as unknown as {
-            cliente: { id: string; fantasia: string; bairro: string | null } | null
+            cliente: { id: string; fantasia: string; bairro: string | null; is_cliente: boolean } | null
           }[])
             .filter((p) => p.cliente)
             .map((p) => ({
               id: p.cliente!.id,
               fantasia: p.cliente!.fantasia,
               bairro: p.cliente!.bairro,
+              is_cliente: p.cliente!.is_cliente,
             })),
         )
       }
@@ -123,7 +132,7 @@ export default function RotaForm() {
     }
     const { data } = await supabase
       .from('clientes')
-      .select('id, fantasia, bairro')
+      .select('id, fantasia, bairro, is_cliente')
       .eq('ativo', true)
       .ilike('fantasia', `%${query}%`)
       .order('fantasia')
@@ -140,7 +149,7 @@ export default function RotaForm() {
     const to = from + SEARCH_PAGE - 1
     const { data } = await supabase
       .from('clientes')
-      .select('id, fantasia, bairro')
+      .select('id, fantasia, bairro, is_cliente')
       .eq('ativo', true)
       .ilike('fantasia', `%${searchQuery}%`)
       .order('fantasia')
@@ -157,7 +166,7 @@ export default function RotaForm() {
     if (clientesSelecionados.some((s) => s.id === c.id)) return
     setClientesSelecionados((prev) => [
       ...prev,
-      { id: c.id, fantasia: c.fantasia, bairro: c.bairro },
+      { id: c.id, fantasia: c.fantasia, bairro: c.bairro, is_cliente: c.is_cliente },
     ])
     setSearchQuery('')
     setSearchResults([])
@@ -319,6 +328,11 @@ export default function RotaForm() {
                   className="w-full px-3 py-2.5 text-left text-sm hover:bg-gray-50 disabled:opacity-40"
                 >
                   <span className="font-medium">{c.fantasia}</span>
+                  {!c.is_cliente && (
+                    <span className="ml-2 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                      Prospect
+                    </span>
+                  )}
                   {c.bairro && <span className="ml-2 text-gray-400">— {c.bairro}</span>}
                 </button>
               ))}

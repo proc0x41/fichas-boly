@@ -13,7 +13,7 @@ import type { StatusVisita } from '../types'
 interface Parada {
   cliente_id: string
   ordem: number
-  cliente: { fantasia: string; endereco: string | null; bairro: string | null; cidade: string | null }
+  cliente: { fantasia: string; endereco: string | null; bairro: string | null; cidade: string | null; is_cliente: boolean }
   visita: { id: string; status: StatusVisita } | null
 }
 
@@ -61,7 +61,7 @@ export default function RotaExecucao() {
       const [{ data: paradasTemplate }, { data: visitasExec }] = await Promise.all([
         supabase
           .from('rota_clientes')
-          .select('cliente_id, ordem, cliente:clientes(fantasia, endereco, bairro, cidade)')
+          .select('cliente_id, ordem, cliente:clientes(fantasia, endereco, bairro, cidade, is_cliente)')
           .eq('rota_id', rota.id)
           .order('ordem'),
         supabase
@@ -216,7 +216,14 @@ export default function RotaExecucao() {
                       {idx + 1}
                     </span>
                     <div>
-                      <p className="font-medium text-gray-900">{parada.cliente.fantasia}</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="font-medium text-gray-900">{parada.cliente.fantasia}</p>
+                        {!parada.cliente.is_cliente && (
+                          <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                            Prospect
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-0.5 text-xs text-gray-500">
                         {[parada.cliente.endereco, parada.cliente.bairro, parada.cliente.cidade]
                           .filter(Boolean)

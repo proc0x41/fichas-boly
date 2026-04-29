@@ -12,7 +12,7 @@ interface ParadaTemplate {
   id: string
   cliente_id: string
   ordem: number
-  cliente: { fantasia: string; bairro: string | null }
+  cliente: { fantasia: string; bairro: string | null; is_cliente: boolean }
 }
 
 interface ExecucaoResumo {
@@ -44,7 +44,7 @@ export default function RotaDetalhe() {
         supabase.from('rotas').select('nome').eq('id', id).single(),
         supabase
           .from('rota_clientes')
-          .select('id, cliente_id, ordem, cliente:clientes(fantasia, bairro)')
+          .select('id, cliente_id, ordem, cliente:clientes(fantasia, bairro, is_cliente)')
           .eq('rota_id', id)
           .order('ordem'),
         supabase
@@ -195,7 +195,14 @@ export default function RotaDetalhe() {
                 {idx + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-gray-800">{p.cliente.fantasia}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="truncate text-sm font-medium text-gray-800">{p.cliente.fantasia}</p>
+                  {!p.cliente.is_cliente && (
+                    <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                      Prospect
+                    </span>
+                  )}
+                </div>
                 {p.cliente.bairro && (
                   <p className="text-xs text-gray-400">{p.cliente.bairro}</p>
                 )}
