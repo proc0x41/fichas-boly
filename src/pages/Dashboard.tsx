@@ -19,6 +19,7 @@ interface ProximaParada {
   cliente_id: string
   cliente_nome: string
   bairro: string | null
+  is_cliente: boolean
   status: StatusVisita
   ordem: number
   /** Quando já existe visita nesta execução, abre edição em vez de formulário em branco */
@@ -59,7 +60,7 @@ export default function Dashboard() {
       const { data: rotasData } = await supabase
         .from('rotas')
         .select(
-          'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status))',
+          'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro, is_cliente)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status))',
         )
         .eq('ativo', true)
         .order('ordem', { ascending: true })
@@ -80,7 +81,7 @@ export default function Dashboard() {
           id: string
           cliente_id: string
           ordem: number
-          cliente: { fantasia: string; bairro: string | null } | null
+          cliente: { fantasia: string; bairro: string | null; is_cliente: boolean } | null
         }[]
         execucoes: {
           id: string
@@ -110,6 +111,7 @@ export default function Dashboard() {
               cliente_id: p.cliente_id,
               cliente_nome: p.cliente?.fantasia ?? '',
               bairro: p.cliente?.bairro ?? null,
+              is_cliente: p.cliente?.is_cliente ?? true,
               ordem: p.ordem,
               status: (v?.status ?? 'pendente') as StatusVisita,
               visita_id: v?.id ?? null,
@@ -121,7 +123,7 @@ export default function Dashboard() {
             iniciada_em: ativa.iniciada_em,
             total: totalParadas,
             visitados: listaStatus.filter((p) => p.status === 'visitado').length,
-            proximas: listaStatus.filter((p) => p.status !== 'visitado').slice(0, 3),
+            proximas: listaStatus.filter((p) => p.status !== 'visitado'),
           })
         } else if (!status.feita && totalParadas > 0) {
           pendentes.push({ rota_id: r.id, nome: r.nome, total_clientes: totalParadas, status })
@@ -288,9 +290,16 @@ export default function Dashboard() {
                         {idx + 1}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-gray-800">
-                          {p.cliente_nome}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="truncate text-sm font-medium text-gray-800">
+                            {p.cliente_nome}
+                          </p>
+                          {!p.is_cliente && (
+                            <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                              Prospect
+                            </span>
+                          )}
+                        </div>
                         {p.bairro && <p className="text-xs text-gray-400">{p.bairro}</p>}
                       </div>
                       <StatusBadge status={p.status} />
