@@ -20,6 +20,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { SearchInput } from '../components/SearchInput'
 import { LoadingButton } from '../components/LoadingButton'
+import { stripAccents } from '../lib/masks'
 import { ArrowLeft, GripVertical, X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente } from '../types'
@@ -130,11 +131,12 @@ export default function RotaForm() {
       setSearchHasMore(false)
       return
     }
+    const normalized = stripAccents(query.trim()).toLowerCase()
     const { data } = await supabase
       .from('clientes')
       .select('id, fantasia, bairro, is_cliente')
       .eq('ativo', true)
-      .ilike('fantasia', `%${query}%`)
+      .ilike('search_text', `%${normalized}%`)
       .order('fantasia')
       .range(0, SEARCH_PAGE - 1)
 
@@ -147,11 +149,12 @@ export default function RotaForm() {
     if (!searchQuery.trim()) return
     const from = searchResults.length
     const to = from + SEARCH_PAGE - 1
+    const normalized = stripAccents(searchQuery.trim()).toLowerCase()
     const { data } = await supabase
       .from('clientes')
       .select('id, fantasia, bairro, is_cliente')
       .eq('ativo', true)
-      .ilike('fantasia', `%${searchQuery}%`)
+      .ilike('search_text', `%${normalized}%`)
       .order('fantasia')
       .range(from, to)
     const next = (data ?? []) as Cliente[]
