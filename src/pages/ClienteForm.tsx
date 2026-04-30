@@ -67,7 +67,7 @@ export default function ClienteForm() {
             fantasia: data.fantasia ?? '',
             razao_social: data.razao_social ?? '',
             cnpj: data.cnpj ? maskCNPJ(data.cnpj) : '',
-            inscricao_estadual: data.inscricao_estadual ?? '',
+            inscricao_estadual: data.inscricao_estadual ? maskIE(data.inscricao_estadual) : '',
             endereco: data.endereco ?? '',
             numero: data.numero ?? '',
             complemento: data.complemento ?? '',

@@ -25,11 +25,17 @@ export function maskTelefone(value: string): string {
 }
 
 export function maskIE(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 14)
+  const digits = value.replace(/\D/g, '').slice(0, 14)
+  return digits.match(/.{1,3}/g)?.join('.') ?? ''
 }
 
 export function unmask(value: string): string {
   return value.replace(/\D/g, '')
+}
+
+/** Remove acentuação para buscas case/accent-insensitive (cliente). */
+export function stripAccents(value: string): string {
+  return value.normalize('NFD').replace(/\p{Diacritic}/gu, '')
 }
 
 export function validateCNPJ(cnpj: string): boolean {

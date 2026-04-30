@@ -6,7 +6,7 @@ import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
 import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { maskCNPJ, maskCEP, maskTelefone } from '../lib/masks'
+import { maskCNPJ, maskCEP, maskTelefone, maskIE } from '../lib/masks'
 import { normCodigo } from '../lib/utils'
 import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita, TipoVisita } from '../types'
 
@@ -194,7 +194,7 @@ export default function ClienteDetalhe() {
   const info = [
     { label: 'Razão Social', value: cliente.razao_social },
     { label: 'CNPJ', value: cliente.cnpj ? maskCNPJ(cliente.cnpj) : null },
-    { label: 'IE', value: cliente.inscricao_estadual },
+    { label: 'IE', value: cliente.inscricao_estadual ? maskIE(cliente.inscricao_estadual) : null },
     {
       label: 'Endereço',
       value: [

@@ -5,6 +5,7 @@ import { SearchInput } from '../components/SearchInput'
 import { ClienteCard } from '../components/ClienteCard'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
+import { stripAccents } from '../lib/masks'
 import { Plus, Users, Loader2 } from 'lucide-react'
 import type { Cliente } from '../types'
 
@@ -36,24 +37,16 @@ export default function Clientes() {
     if (search.trim()) {
       // PostgREST .or() trata vírgulas e parênteses como separadores; remover do termo de busca
       const query = search.trim().replace(/[(),]/g, ' ').replace(/\s+/g, ' ')
+      // Busca em coluna normalizada (sem acento + lowercase) — ver migration-busca-sem-acentos.sql
+      const normalized = stripAccents(query).toLowerCase()
       const digits = query.replace(/\D/g, '')
-      const fields = [
-        'fantasia',
-        'razao_social',
-        'cnpj',
-        'inscricao_estadual',
-        'endereco',
-        'bairro',
-        'cidade',
-        'estado',
-        'cep',
-        'comprador',
-        'telefone',
-        'email',
+      const conditions = [
+        `search_text.ilike.%${normalized}%`,
+        // IE não entra em search_text; busca direta (campo só com dígitos)
+        `inscricao_estadual.ilike.%${query}%`,
       ]
-      const conditions = fields.map((f) => `${f}.ilike.%${query}%`)
       // Se o termo tem dígitos, busca também por cnpj/cep/telefone só pelos dígitos (mascarados ou não)
-      if (digits && digits !== query) {
+      if (digits) {
         conditions.push(`cnpj.ilike.%${digits}%`)
         conditions.push(`cep.ilike.%${digits}%`)
         conditions.push(`telefone.ilike.%${digits}%`)

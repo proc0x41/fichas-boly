@@ -6,7 +6,7 @@ import { SearchInput } from '../../components/SearchInput'
 import { PaginationBar } from '../../components/PaginationBar'
 import { ArrowLeft, Loader2, Upload, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { unmask, validateCNPJ } from '../../lib/masks'
+import { unmask, validateCNPJ, stripAccents } from '../../lib/masks'
 import { getCell } from '../../lib/utils'
 
 const PAGE_SIZE = 25
@@ -100,8 +100,14 @@ export default function AdminClientes() {
       .range(from, to)
 
     if (search.trim()) {
-      const q = search.trim()
-      clientesQuery = clientesQuery.or(`fantasia.ilike.%${q}%,cnpj.ilike.%${q}%,bairro.ilike.%${q}%`)
+      const q = search.trim().replace(/[(),]/g, ' ').replace(/\s+/g, ' ')
+      const normalized = stripAccents(q).toLowerCase()
+      const digits = q.replace(/\D/g, '')
+      const conditions = [`search_text.ilike.%${normalized}%`]
+      if (digits) {
+        conditions.push(`cnpj.ilike.%${digits}%`)
+      }
+      clientesQuery = clientesQuery.or(conditions.join(','))
     }
 
     const [{ data: rows, count, error: cErr }, { data: perfisRows, error: pErr }] = await Promise.all([
