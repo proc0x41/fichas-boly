@@ -88,7 +88,7 @@ export default function VisitaForm() {
       .then(({ data }) => {
         const map = new Map<string, ProdutoPreview>()
         for (const p of data ?? []) {
-          map.set(normCodigo(p.codigo), { descricao: p.descricao, preco_tabela: Number(p.preco_tabela) })
+          map.set(normCodigo(p.codigo), { descricao: p.descricao, preco_tabela: Number(p.preco_tabela), codigoCanonico: p.codigo })
         }
         setCatalogoProdutos(map)
       })

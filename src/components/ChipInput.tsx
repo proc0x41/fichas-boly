@@ -3,6 +3,7 @@ import { X, Plus, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { CodigoItem } from '../types'
 import { stripAccents } from '../lib/masks'
+import { normCodigo } from '../lib/utils'
 
 export interface ProdutoPreview {
   descricao: string
@@ -46,7 +47,7 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
       const descNorm = stripAccents(prod.descricao).toLowerCase()
       const codNorm = cod.toLowerCase()
       if (descNorm.includes(termoNorm) || codNorm.includes(termoNorm)) {
-        result.push({ codigo: cod, descricao: prod.descricao, preco_tabela: prod.preco_tabela })
+        result.push({ codigo: prod.codigoCanonico ?? cod.toUpperCase(), descricao: prod.descricao, preco_tabela: prod.preco_tabela })
         if (result.length >= 8) break
       }
     }
@@ -301,7 +302,7 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
         <div className="mt-3 flex flex-col gap-1.5" role="list" aria-label="Itens do pedido">
           {itens.map((item, idx) => idx).reverse().map((idx) => {
             const item = itens[idx]
-            const prod = produtosCatalogo?.get(item.codigo.trim().toUpperCase()) ?? null
+            const prod = produtosCatalogo?.get(normCodigo(item.codigo)) ?? null
             return (
               <div
                 key={`${item.codigo}-${idx}`}
