@@ -1,7 +1,8 @@
-import { useState, useRef, useId, useEffect, type KeyboardEvent, type MouseEvent } from 'react'
+import { useState, useRef, useId, useEffect, useMemo, type KeyboardEvent, type MouseEvent } from 'react'
 import { X, Plus, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { CodigoItem } from '../types'
+import { stripAccents } from '../lib/masks'
 
 export interface ProdutoPreview {
   descricao: string
@@ -27,10 +28,30 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewNaoEncontrado, setPreviewNaoEncontrado] = useState(false)
   const [previewParaCodigo, setPreviewParaCodigo] = useState('')
+  const [sugestoesAbertas, setSugestoesAbertas] = useState(false)
   const codigoInputRef = useRef<HTMLInputElement>(null)
   const quantidadeInputRef = useRef<HTMLInputElement>(null)
   const codigoId = useId()
   const quantidadeId = useId()
+
+  // Sugestões por nome/código: busca no catálogo disponível localmente.
+  // Filtra por descrição ou código contendo o termo (case/accent-insensitive). Máx 8 itens.
+  const sugestoes = useMemo(() => {
+    if (!produtosCatalogo) return []
+    const termo = codigo.trim()
+    if (termo.length < 2) return []
+    const termoNorm = stripAccents(termo).toLowerCase()
+    const result: { codigo: string; descricao: string; preco_tabela: number }[] = []
+    for (const [cod, prod] of produtosCatalogo) {
+      const descNorm = stripAccents(prod.descricao).toLowerCase()
+      const codNorm = cod.toLowerCase()
+      if (descNorm.includes(termoNorm) || codNorm.includes(termoNorm)) {
+        result.push({ codigo: cod, descricao: prod.descricao, preco_tabela: prod.preco_tabela })
+        if (result.length >= 8) break
+      }
+    }
+    return result
+  }, [codigo, produtosCatalogo])
 
   useEffect(() => {
     const norm = codigo.trim().toUpperCase()
@@ -150,17 +171,24 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
           ref={codigoInputRef}
           type="text"
           value={codigo}
-          onChange={(e) => setCodigo(e.target.value)}
+          onChange={(e) => {
+            setCodigo(e.target.value)
+            setSugestoesAbertas(true)
+          }}
           onKeyDown={handleCodigoKeyDown}
-          maxLength={maxLength}
-          placeholder="Código"
-          aria-label="Código do produto"
-          autoCapitalize="characters"
+          onFocus={() => setSugestoesAbertas(true)}
+          onBlur={() => {
+            // Pequeno delay para permitir click nas sugestões antes de fechar.
+            setTimeout(() => setSugestoesAbertas(false), 150)
+          }}
+          maxLength={Math.max(maxLength, 80)}
+          placeholder="Código ou nome do produto"
+          aria-label="Código ou nome do produto"
           autoCorrect="off"
           autoComplete="off"
           spellCheck={false}
           enterKeyHint="next"
-          className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2.5 text-sm uppercase focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
+          className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none"
         />
         <input
           id={quantidadeId}
@@ -189,7 +217,37 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
         </button>
       </div>
 
-      {onLookupCodigo && codigo.trim() && (() => {
+      {/* Sugestões por nome/código (catálogo local). Ocultas quando o preview já encontrou correspondência exata. */}
+      {sugestoesAbertas && sugestoes.length > 0 && !preview && (
+        <ul
+          role="listbox"
+          aria-label="Sugestões de produto"
+          className="mt-1.5 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm"
+        >
+          {sugestoes.map((s) => (
+            <li key={s.codigo}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setCodigo(s.codigo)
+                  setSugestoesAbertas(false)
+                  quantidadeInputRef.current?.focus()
+                }}
+                className="flex w-full items-baseline gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+              >
+                <span className="shrink-0 font-mono font-semibold text-primary-700">{s.codigo}</span>
+                <span className="min-w-0 flex-1 truncate text-gray-800">{s.descricao}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-gray-500">
+                  {Number(s.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {onLookupCodigo && codigo.trim() && !(sugestoesAbertas && sugestoes.length > 0 && !preview) && (() => {
         const codigoFinalPreview = preview?.codigoCanonico ?? codigo.trim().toUpperCase()
         const isDuplicado = itens.some((i) => i.codigo === codigoFinalPreview)
         return (
@@ -222,11 +280,9 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
               )}
               {!previewLoading && !isDuplicado && preview && (
                 <>
-                  {preview.codigoCanonico && preview.codigoCanonico !== codigo.trim().toUpperCase() && (
-                    <p className="text-[11px] text-green-700 font-medium mb-0.5">
-                      Código: <span className="font-mono">{preview.codigoCanonico}</span>
-                    </p>
-                  )}
+                  <p className="text-[11px] text-green-700 font-medium mb-0.5">
+                    Código: <span className="font-mono">{preview.codigoCanonico ?? codigo.trim().toUpperCase()}</span>
+                  </p>
                   <p className="font-semibold text-gray-800 truncate">{preview.descricao}</p>
                   <p className="text-gray-500">
                     {Number(preview.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
