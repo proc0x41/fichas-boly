@@ -8,13 +8,13 @@ import { EmptyState } from '../components/EmptyState'
 import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, Loader2, MapPin, Check, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import type { StatusVisita } from '../types'
+import type { StatusVisita, TipoVisita } from '../types'
 
 interface Parada {
   cliente_id: string
   ordem: number
   cliente: { fantasia: string; endereco: string | null; bairro: string | null; cidade: string | null; is_cliente: boolean }
-  visita: { id: string; status: StatusVisita } | null
+  visita: { id: string; status: StatusVisita; tipo_visita: TipoVisita } | null
 }
 
 export default function RotaExecucao() {
@@ -66,15 +66,19 @@ export default function RotaExecucao() {
           .order('ordem'),
         supabase
           .from('visitas')
-          .select('id, cliente_id, status')
+          .select('id, cliente_id, status, tipo_visita')
           .eq('rota_execucao_id', execucaoId),
       ])
 
       if (cancelled) return
 
-      const visitasPorCliente = new Map<string, { id: string; status: StatusVisita }>()
+      const visitasPorCliente = new Map<string, { id: string; status: StatusVisita; tipo_visita: TipoVisita }>()
       ;(visitasExec ?? []).forEach((v) => {
-        visitasPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita })
+        visitasPorCliente.set(v.cliente_id, {
+          id: v.id,
+          status: v.status as StatusVisita,
+          tipo_visita: ((v as { tipo_visita?: string }).tipo_visita as TipoVisita) ?? 'visita',
+        })
       })
 
       setParadas(
@@ -110,7 +114,7 @@ export default function RotaExecucao() {
     setFinalizada(true)
   }
 
-  const visitados = paradas.filter((p) => p.visita?.status === 'visitado').length
+  const visitados = paradas.filter((p) => p.visita != null && p.visita.status === 'visitado').length
 
   const marcarApenasVisitada = async (clienteId: string) => {
     if (!execucaoId || !user) return
@@ -125,7 +129,7 @@ export default function RotaExecucao() {
         tipo_visita: 'visita',
         rota_execucao_id: execucaoId,
       })
-      .select('id, status')
+      .select('id, status, tipo_visita')
       .single()
     setMarcandoCliente(null)
     if (error || !data) {
@@ -135,20 +139,48 @@ export default function RotaExecucao() {
     setParadas((prev) =>
       prev.map((p) =>
         p.cliente_id === clienteId
-          ? { ...p, visita: { id: data.id as string, status: data.status as StatusVisita } }
+          ? {
+              ...p,
+              visita: {
+                id: data.id as string,
+                status: data.status as StatusVisita,
+                tipo_visita: ((data as { tipo_visita?: string }).tipo_visita as TipoVisita) ?? 'visita',
+              },
+            }
           : p,
       ),
     )
     toast.success('Marcado como visitado')
   }
 
-  const statusColor = (status?: StatusVisita) => {
-    switch (status) {
+  const borderColor = (visita: Parada['visita']) => {
+    if (!visita) return 'border-l-gray-300'
+    if (visita.tipo_visita === 'pedido') return 'border-l-blue-500'
+    if (visita.tipo_visita === 'orcamento') return 'border-l-amber-500'
+    switch (visita.status) {
       case 'visitado': return 'border-l-green-500'
       case 'nao_encontrado': return 'border-l-red-500'
       case 'reagendado': return 'border-l-yellow-500'
       default: return 'border-l-gray-300'
     }
+  }
+
+  const renderBadge = (visita: Parada['visita']) => {
+    if (visita?.tipo_visita === 'pedido') {
+      return (
+        <span className="inline-flex rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+          Pedido
+        </span>
+      )
+    }
+    if (visita?.tipo_visita === 'orcamento') {
+      return (
+        <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+          Orçamento
+        </span>
+      )
+    }
+    return <StatusBadge status={visita?.status ?? 'pendente'} />
   }
 
   if (loading) {
@@ -200,7 +232,7 @@ export default function RotaExecucao() {
           {paradas.map((parada, idx) => (
             <div
               key={parada.cliente_id}
-              className={`relative rounded-xl border border-gray-200 border-l-4 bg-white transition-colors ${statusColor(parada.visita?.status)}`}
+              className={`relative rounded-xl border border-gray-200 border-l-4 bg-white transition-colors ${borderColor(parada.visita)}`}
             >
               <Link
                 to={
@@ -231,7 +263,7 @@ export default function RotaExecucao() {
                       </p>
                     </div>
                   </div>
-                  <StatusBadge status={parada.visita?.status ?? 'pendente'} />
+                  {renderBadge(parada.visita)}
                 </div>
               </Link>
               {!finalizada && !parada.visita && (

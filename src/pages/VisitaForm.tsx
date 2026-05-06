@@ -7,7 +7,7 @@ import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
-import { linkMercosWhatsApp, podeEnviarMercos } from '../lib/mercos'
+import { linkRepresentadaWhatsApp, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { compartilharOuBaixarPdf } from '../lib/sharePedido'
 import { normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
@@ -397,7 +397,7 @@ export default function VisitaForm() {
     }
   }
 
-  const enviarMercos = () => {
+  const enviarRepresentada = async () => {
     const pedido = {
       cnpj: clienteCNPJ,
       comprador: clienteComprador,
@@ -405,11 +405,24 @@ export default function VisitaForm() {
       condicoesPagamento,
       observacoes: observacao,
     }
-    if (!podeEnviarMercos(pedido)) {
+    if (!podeEnviarRepresentada(pedido)) {
       toast.error('Preencha CNPJ do cliente e ao menos 1 item')
       return
     }
-    window.open(linkMercosWhatsApp(pedido), '_blank', 'noopener')
+    // Garante que a visita esteja salva (gera id) antes de carimbar e abrir o WhatsApp.
+    const resultado = await salvarDados()
+    if (!resultado) return
+    const { error } = await supabase
+      .from('visitas')
+      .update({ enviado_representada_em: new Date().toISOString() })
+      .eq('id', resultado.id)
+    if (error) {
+      toast.error('Erro ao registrar envio')
+      return
+    }
+    window.open(linkRepresentadaWhatsApp(pedido), '_blank', 'noopener')
+    toast.success('Marcado como enviado para Representada')
+    if (!visitaId) navigateParaEdicao(resultado.id)
   }
 
   const navigateParaEdicao = (id: string) => {
@@ -469,7 +482,7 @@ export default function VisitaForm() {
     )
   }
 
-  const canMercos = podeEnviarMercos({
+  const canRepresentada = podeEnviarRepresentada({
     cnpj: clienteCNPJ,
     comprador: clienteComprador,
     itens,
@@ -590,7 +603,7 @@ export default function VisitaForm() {
                 Reaproveitar última
               </button>
             </div>
-            <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} />
+            <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} produtosCatalogo={catalogoProdutos} />
             <p className="mt-1 text-[11px] text-gray-400">
               Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
             </p>
@@ -729,14 +742,14 @@ export default function VisitaForm() {
 
               <button
                 type="button"
-                onClick={enviarMercos}
-                disabled={!canMercos}
+                onClick={() => void enviarRepresentada()}
+                disabled={!canRepresentada || exportando || loading}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-600 bg-white px-4 py-3 text-sm font-medium text-green-700 transition-colors active:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
               >
                 <Send className="h-4 w-4" />
-                Enviar pedido para Mercos (WhatsApp)
+                Enviar pedido para Representada
               </button>
-              {!canMercos && (
+              {!canRepresentada && (
                 <p className="text-[11px] text-gray-400">
                   Para enviar: cliente precisa ter CNPJ cadastrado e ao menos 1 item.
                 </p>

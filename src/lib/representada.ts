@@ -1,11 +1,11 @@
 import type { CodigoItem } from '../types'
 
-const MERCOS_PHONE = '551140401847'
+const REPRESENTADA_PHONE = '551140401847'
 const REPRESENTADA = 'Boly Comércio e Indústria de Encartelados LTDA - EPP'
 
-export interface PedidoMercos {
+export interface PedidoRepresentada {
   cnpj: string | null
-  /** Nome do comprador no cliente — enviado para a IA da Mercos no WhatsApp */
+  /** Nome do comprador no cliente — enviado no WhatsApp da Representada */
   comprador: string | null
   itens: CodigoItem[]
   condicoesPagamento: string | null
@@ -19,7 +19,7 @@ function formatCNPJ(raw: string | null): string | null {
   return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
 }
 
-export function mensagemPedidoMercos(pedido: PedidoMercos): string {
+export function mensagemPedidoRepresentada(pedido: PedidoRepresentada): string {
   const linhas: string[] = []
 
   const cnpjFormatado = formatCNPJ(pedido.cnpj)
@@ -31,8 +31,6 @@ export function mensagemPedidoMercos(pedido: PedidoMercos): string {
   linhas.push(`O pedido é para a representada ${REPRESENTADA}`)
 
   if (pedido.itens.length > 0) {
-    // Formato compacto em uma linha (padrão pedido Mercos).
-    // Ex: "Códigos: COD1 x 10, COD2 x 5"
     const itensStr = pedido.itens
       .map((i) => `${i.codigo} x ${i.quantidade}`)
       .join(', ')
@@ -50,11 +48,11 @@ export function mensagemPedidoMercos(pedido: PedidoMercos): string {
   return linhas.join('\n')
 }
 
-export function linkMercosWhatsApp(pedido: PedidoMercos): string {
-  const texto = mensagemPedidoMercos(pedido)
-  return `https://wa.me/${MERCOS_PHONE}?text=${encodeURIComponent(texto)}`
+export function linkRepresentadaWhatsApp(pedido: PedidoRepresentada): string {
+  const texto = mensagemPedidoRepresentada(pedido)
+  return `https://wa.me/${REPRESENTADA_PHONE}?text=${encodeURIComponent(texto)}`
 }
 
-export function podeEnviarMercos(pedido: PedidoMercos): boolean {
+export function podeEnviarRepresentada(pedido: PedidoRepresentada): boolean {
   return Boolean(pedido.cnpj) && pedido.itens.length > 0
 }

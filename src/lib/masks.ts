@@ -25,8 +25,12 @@ export function maskTelefone(value: string): string {
 }
 
 export function maskIE(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 14)
-  return digits.match(/.{1,3}/g)?.join('.') ?? ''
+  const digits = value.replace(/\D/g, '').slice(0, 12)
+  // Formato: XXX.XXX.XXX.XXX (12 dígitos), aplica pontos progressivamente.
+  return digits
+    .replace(/^(\d{3})(\d)/, '$1.$2')
+    .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3.$4')
 }
 
 export function unmask(value: string): string {

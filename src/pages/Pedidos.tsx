@@ -5,10 +5,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { SearchInput } from '../components/SearchInput'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
-import { Loader2, ShoppingBag, ChevronRight } from 'lucide-react'
+import { Loader2, ShoppingBag, ChevronRight, Send } from 'lucide-react'
+import { normCodigo } from '../lib/utils'
 import type { TipoVisita, StatusVisita } from '../types'
 
-type FiltroTipo = 'todos' | 'pedido' | 'orcamento'
+type FiltroTipo = 'pedido' | 'orcamento'
 
 interface PedidoRow {
   id: string
@@ -18,9 +19,11 @@ interface PedidoRow {
   tipo_visita: TipoVisita
   status: StatusVisita
   condicoes_pagamento: string | null
-  valor_frete: number | null
-  desconto_percent: number | null
+  valor_frete: number
+  desconto_percent: number
   total_itens: number
+  valor_total: number
+  enviado_representada_em: string | null
   cliente_fantasia: string
 }
 
@@ -48,14 +51,38 @@ const statusColor: Record<StatusVisita, string> = {
   reagendado: 'bg-yellow-50 text-yellow-700',
 }
 
+const fmtBRL = (v: number) =>
+  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
 export default function Pedidos() {
   const { user } = useAuth()
   const [rows, setRows] = useState<PedidoRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
-  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos')
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('pedido')
   const [loading, setLoading] = useState(true)
+  const [precos, setPrecos] = useState<Map<string, number>>(new Map())
+
+  // Carrega catálogo de preços uma vez (mapa código normalizado → preço de tabela).
+  useEffect(() => {
+    let cancelled = false
+    void supabase
+      .from('produtos')
+      .select('codigo, preco_tabela')
+      .eq('ativo', true)
+      .then(({ data }) => {
+        if (cancelled) return
+        const m = new Map<string, number>()
+        for (const p of data ?? []) {
+          m.set(normCodigo(p.codigo as string), Number(p.preco_tabela))
+        }
+        setPrecos(m)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -74,19 +101,16 @@ export default function Pedidos() {
       .select(
         `id, numero_pedido, data_visita, tipo_visita, status,
          condicoes_pagamento, valor_frete, desconto_percent,
-         cliente_id,
+         enviado_representada_em, cliente_id,
          cliente:clientes(fantasia),
-         codigos:visita_codigos(id)`,
+         codigos:visita_codigos(id, codigo, quantidade)`,
         { count: 'exact' },
       )
       .eq('vendedor_id', user.id)
+      .eq('tipo_visita', filtroTipo)
       .order('data_visita', { ascending: false })
       .order('criado_em', { ascending: false })
       .range(from, to)
-
-    if (filtroTipo !== 'todos') {
-      q = q.eq('tipo_visita', filtroTipo)
-    }
 
     if (search.trim()) {
       q = q.ilike('cliente.fantasia', `%${search.trim()}%`)
@@ -102,7 +126,16 @@ export default function Pedidos() {
         (data ?? []).map((r) => {
           const raw = r as Record<string, unknown>
           const cliente = raw.cliente as { fantasia: string } | null
-          const codigos = raw.codigos as unknown[]
+          const codigos = (raw.codigos as { codigo: string; quantidade: number }[] | null) ?? []
+          const desc = Number((raw.desconto_percent as number | null) ?? 0)
+          const frete = Number((raw.valor_frete as number | null) ?? 0)
+          const fator = 1 - desc / 100
+          let subtotal = 0
+          for (const c of codigos) {
+            const preco = precos.get(normCodigo(c.codigo)) ?? 0
+            subtotal += preco * c.quantidade
+          }
+          const valorTotal = subtotal * fator + frete
           return {
             id: raw.id as string,
             cliente_id: raw.cliente_id as string,
@@ -111,9 +144,11 @@ export default function Pedidos() {
             tipo_visita: (raw.tipo_visita as TipoVisita) ?? 'pedido',
             status: raw.status as StatusVisita,
             condicoes_pagamento: (raw.condicoes_pagamento as string | null) ?? null,
-            valor_frete: (raw.valor_frete as number | null) ?? null,
-            desconto_percent: (raw.desconto_percent as number | null) ?? null,
-            total_itens: codigos?.length ?? 0,
+            valor_frete: frete,
+            desconto_percent: desc,
+            total_itens: codigos.length,
+            valor_total: valorTotal,
+            enviado_representada_em: (raw.enviado_representada_em as string | null) ?? null,
             cliente_fantasia: cliente?.fantasia ?? '—',
           }
         }),
@@ -123,7 +158,7 @@ export default function Pedidos() {
     }
 
     setLoading(false)
-  }, [user, page, search, filtroTipo])
+  }, [user, page, search, filtroTipo, precos])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -131,7 +166,6 @@ export default function Pedidos() {
   }, [load])
 
   const filtros: { value: FiltroTipo; label: string }[] = [
-    { value: 'todos', label: 'Todos' },
     { value: 'pedido', label: 'Pedidos' },
     { value: 'orcamento', label: 'Orçamentos' },
   ]
@@ -174,7 +208,7 @@ export default function Pedidos() {
         <EmptyState
           icon={<ShoppingBag className="h-12 w-12" />}
           title="Nenhum pedido encontrado"
-          description={search || filtroTipo !== 'todos' ? 'Tente outros filtros.' : 'Seus pedidos e orçamentos aparecem aqui.'}
+          description={search ? 'Tente outros filtros.' : 'Seus pedidos e orçamentos aparecem aqui.'}
         />
       ) : (
         <div className="space-y-2">
@@ -184,16 +218,24 @@ export default function Pedidos() {
               to={`/clientes/${r.cliente_id}/visita/${r.id}/editar`}
               className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm active:bg-gray-50"
             >
-              {/* Tipo badge */}
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  r.tipo_visita === 'orcamento'
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-blue-100 text-blue-700'
-                }`}
-              >
-                {tipoLabel[r.tipo_visita]}
-              </span>
+              {/* Tipo badge + Enviado badge */}
+              <div className="flex shrink-0 flex-col items-start gap-1">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                    r.tipo_visita === 'orcamento'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}
+                >
+                  {tipoLabel[r.tipo_visita]}
+                </span>
+                {r.enviado_representada_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700">
+                    <Send className="h-2.5 w-2.5" />
+                    Enviado
+                  </span>
+                )}
+              </div>
 
               {/* Info central */}
               <div className="min-w-0 flex-1">
@@ -220,8 +262,11 @@ export default function Pedidos() {
                 </div>
               </div>
 
-              {/* Status + seta */}
+              {/* Valor + status + seta */}
               <div className="flex shrink-0 flex-col items-end gap-1">
+                <span className="text-sm font-semibold tabular-nums text-gray-900">
+                  {fmtBRL(r.valor_total)}
+                </span>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColor[r.status]}`}>
                   {statusLabel[r.status]}
                 </span>

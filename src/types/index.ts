@@ -89,6 +89,8 @@ export interface Visita {
   valor_frete?: number
   /** Desconto único do pedido em % sobre preço de tabela (0–100). */
   desconto_percent?: number
+  /** Timestamp do envio do pedido/orçamento para a Representada (WhatsApp). Null = não enviado. */
+  enviado_representada_em?: string | null
   criado_em: string
   cliente?: Cliente
   codigos?: VisitaCodigo[]

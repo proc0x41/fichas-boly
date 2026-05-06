@@ -14,11 +14,13 @@ interface Props {
   itens: CodigoItem[]
   onChange: (itens: CodigoItem[]) => void
   onLookupCodigo?: (codigo: string) => Promise<ProdutoPreview | null>
+  /** Catálogo de produtos (chave = código normalizado) para exibir descrição em cada chip. */
+  produtosCatalogo?: Map<string, ProdutoPreview> | null
   maxLength?: number
   maxItems?: number
 }
 
-export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, maxItems = 400 }: Props) {
+export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, maxLength = 20, maxItems = 400 }: Props) {
   const [codigo, setCodigo] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [preview, setPreview] = useState<ProdutoPreview | null>(null)
@@ -240,27 +242,39 @@ export function ChipInput({ itens, onChange, onLookupCodigo, maxLength = 20, max
       })()}
 
       {itens.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2" role="list" aria-label="Itens do pedido">
-          {itens.map((item, idx) => (
-            <span
-              key={`${item.codigo}-${idx}`}
-              role="listitem"
-              className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-3 py-1 text-xs font-medium text-primary-700"
-            >
-              <span>{item.codigo}</span>
-              <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold text-primary-800">
-                ×{item.quantidade}
-              </span>
-              <button
-                type="button"
-                onClick={() => remover(idx)}
-                aria-label={`Remover ${item.codigo}`}
-                className="ml-0.5 rounded-full p-0.5 hover:bg-primary-200"
+        <div className="mt-3 flex flex-col gap-1.5" role="list" aria-label="Itens do pedido">
+          {itens.map((item, idx) => {
+            const prod = produtosCatalogo?.get(item.codigo.trim().toUpperCase()) ?? null
+            return (
+              <div
+                key={`${item.codigo}-${idx}`}
+                role="listitem"
+                className="flex items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800"
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="font-mono font-semibold">{item.codigo}</span>
+                    <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold text-primary-800">
+                      ×{item.quantidade}
+                    </span>
+                  </div>
+                  {prod ? (
+                    <p className="mt-0.5 truncate text-[11px] text-gray-600">{prod.descricao}</p>
+                  ) : (
+                    <p className="mt-0.5 truncate text-[11px] text-amber-700">Não cadastrado no catálogo</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => remover(idx)}
+                  aria-label={`Remover ${item.codigo}`}
+                  className="shrink-0 rounded-full p-1 hover:bg-primary-100"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
 
