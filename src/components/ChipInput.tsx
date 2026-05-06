@@ -299,7 +299,8 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
 
       {itens.length > 0 && (
         <div className="mt-3 flex flex-col gap-1.5" role="list" aria-label="Itens do pedido">
-          {itens.map((item, idx) => {
+          {itens.map((item, idx) => idx).reverse().map((idx) => {
+            const item = itens[idx]
             const prod = produtosCatalogo?.get(item.codigo.trim().toUpperCase()) ?? null
             return (
               <div
