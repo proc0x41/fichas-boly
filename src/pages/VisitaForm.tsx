@@ -215,6 +215,26 @@ export default function VisitaForm() {
     }
   }
 
+  const carregarUltimaCondicaoPagamento = async () => {
+    if (!clienteId) return
+    const query = supabase
+      .from('visitas')
+      .select('condicoes_pagamento')
+      .eq('cliente_id', clienteId)
+      .not('condicoes_pagamento', 'is', null)
+      .order('data_visita', { ascending: false })
+      .limit(1)
+    if (visitaId) query.neq('id', visitaId)
+    const { data } = await query.maybeSingle()
+    const anterior = (data?.condicoes_pagamento as string | null | undefined)?.trim()
+    if (anterior) {
+      setCondicoesPagamento(anterior)
+      toast.success('Condição de pagamento reaproveitada')
+    } else {
+      toast('Nenhuma condição de pagamento anterior encontrada')
+    }
+  }
+
   /** Persiste os dados do formulário sem navegar nem exibir toast de sucesso.
    * Retorna `{ id, numero }` em caso de sucesso, ou `null` em caso de erro. */
   const salvarDados = async (): Promise<{ id: string; numero: number | null } | null> => {
@@ -612,7 +632,17 @@ export default function VisitaForm() {
 
         {!isVisitaSimples && (
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Condições de Pagamento</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-xs font-medium text-gray-600">Condições de Pagamento</label>
+              <button
+                type="button"
+                onClick={carregarUltimaCondicaoPagamento}
+                className="flex items-center gap-1 text-xs font-medium text-primary-600"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reaproveitar última
+              </button>
+            </div>
             <input
               type="text"
               value={condicoesPagamento}
