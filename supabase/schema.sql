@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS perfis (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES auth.users ON DELETE CASCADE UNIQUE NOT NULL,
   nome text NOT NULL,
-  role text CHECK (role IN ('vendedor', 'admin')) DEFAULT 'vendedor' NOT NULL,
+  role text CHECK (role IN ('vendedor', 'admin', 'representada')) DEFAULT 'vendedor' NOT NULL,
   must_change_password boolean DEFAULT true NOT NULL,
   ativo boolean DEFAULT true NOT NULL,
   ciclo_dias int NOT NULL DEFAULT 7 CHECK (ciclo_dias BETWEEN 1 AND 60),
@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS visitas (
   desconto_percent numeric(5, 2) NOT NULL DEFAULT 0
     CHECK (desconto_percent >= 0 AND desconto_percent <= 100),
   enviado_representada_em timestamptz,
+  compartilhado_em timestamptz,
+  nota_emitida_em timestamptz,
   criado_em timestamptz DEFAULT now() NOT NULL
 );
 
@@ -124,11 +126,18 @@ COMMENT ON COLUMN visitas.desconto_percent IS
   'Desconto único do pedido em % sobre o preço de tabela (por linha).';
 COMMENT ON COLUMN visitas.enviado_representada_em IS
   'Quando preenchido, indica que o pedido já foi enviado para a Representada (badge na lista de Pedidos).';
+COMMENT ON COLUMN visitas.compartilhado_em IS
+  'Quando preenchido, indica que o vendedor compartilhou o pedido com a Representada para emissão de NF. Toggle pelo vendedor.';
+COMMENT ON COLUMN visitas.nota_emitida_em IS
+  'Quando preenchido, indica que a Representada marcou a NF como emitida. Toggle pela Representada via RPC marcar_nota_emitida.';
 
 CREATE INDEX IF NOT EXISTS idx_visitas_cliente ON visitas(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_visitas_vendedor ON visitas(vendedor_id);
 CREATE INDEX IF NOT EXISTS idx_visitas_data ON visitas(data_visita DESC);
 CREATE INDEX IF NOT EXISTS idx_visitas_execucao ON visitas(rota_execucao_id);
+CREATE INDEX IF NOT EXISTS idx_visitas_compartilhado
+  ON visitas(compartilhado_em DESC)
+  WHERE compartilhado_em IS NOT NULL;
 
 -- 4. CÓDIGOS DE PRODUTO POR VISITA (verso da ficha)
 CREATE TABLE IF NOT EXISTS visita_codigos (
@@ -325,6 +334,17 @@ RETURNS boolean AS $$
   );
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
+-- Helper: função para checar se o usuário é da Representada (emite NF dos pedidos compartilhados)
+CREATE OR REPLACE FUNCTION is_representada()
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM perfis
+    WHERE user_id = auth.uid()
+    AND role = 'representada'
+    AND ativo = true
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
 -- -------------------- PERFIS --------------------
 ALTER TABLE perfis ENABLE ROW LEVEL SECURITY;
 
@@ -344,6 +364,12 @@ CREATE POLICY "admin_all_perfis" ON perfis FOR ALL
   TO authenticated
   USING (is_admin())
   WITH CHECK (is_admin());
+
+-- Representada vê os perfis dos vendedores (para mostrar quem emitiu o pedido).
+DROP POLICY IF EXISTS "representada_select_vendedores" ON perfis;
+CREATE POLICY "representada_select_vendedores" ON perfis FOR SELECT
+  TO authenticated
+  USING (is_representada() AND role = 'vendedor');
 
 -- -------------------- CLIENTES --------------------
 ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
@@ -375,6 +401,20 @@ CREATE POLICY "admin_all_clientes" ON clientes FOR ALL
   USING (is_admin())
   WITH CHECK (is_admin());
 
+-- Representada vê apenas clientes com pedido compartilhado.
+DROP POLICY IF EXISTS "representada_select_clientes" ON clientes;
+CREATE POLICY "representada_select_clientes" ON clientes FOR SELECT
+  TO authenticated
+  USING (
+    is_representada()
+    AND EXISTS (
+      SELECT 1 FROM visitas
+      WHERE visitas.cliente_id = clientes.id
+      AND visitas.compartilhado_em IS NOT NULL
+      AND visitas.tipo_visita = 'pedido'
+    )
+  );
+
 -- -------------------- CLIENTE_CONTATOS --------------------
 ALTER TABLE cliente_contatos ENABLE ROW LEVEL SECURITY;
 
@@ -405,6 +445,19 @@ CREATE POLICY "admin_all_contatos"
   TO authenticated
   USING (is_admin())
   WITH CHECK (is_admin());
+
+DROP POLICY IF EXISTS "representada_select_contatos" ON cliente_contatos;
+CREATE POLICY "representada_select_contatos" ON cliente_contatos FOR SELECT
+  TO authenticated
+  USING (
+    is_representada()
+    AND EXISTS (
+      SELECT 1 FROM visitas v
+      WHERE v.cliente_id = cliente_contatos.cliente_id
+      AND v.compartilhado_em IS NOT NULL
+      AND v.tipo_visita = 'pedido'
+    )
+  );
 
 -- -------------------- VISITAS --------------------
 ALTER TABLE visitas ENABLE ROW LEVEL SECURITY;
@@ -442,6 +495,16 @@ CREATE POLICY "admin_all_visitas" ON visitas FOR ALL
   TO authenticated
   USING (is_admin())
   WITH CHECK (is_admin());
+
+-- Representada vê apenas pedidos compartilhados (tipo_visita='pedido').
+DROP POLICY IF EXISTS "representada_select_visitas" ON visitas;
+CREATE POLICY "representada_select_visitas" ON visitas FOR SELECT
+  TO authenticated
+  USING (
+    is_representada()
+    AND compartilhado_em IS NOT NULL
+    AND tipo_visita = 'pedido'
+  );
 
 -- -------------------- VISITA_CODIGOS --------------------
 ALTER TABLE visita_codigos ENABLE ROW LEVEL SECURITY;
@@ -484,6 +547,19 @@ CREATE POLICY "admin_all_codigos" ON visita_codigos FOR ALL
   TO authenticated
   USING (is_admin())
   WITH CHECK (is_admin());
+
+DROP POLICY IF EXISTS "representada_select_codigos" ON visita_codigos;
+CREATE POLICY "representada_select_codigos" ON visita_codigos FOR SELECT
+  TO authenticated
+  USING (
+    is_representada()
+    AND EXISTS (
+      SELECT 1 FROM visitas
+      WHERE visitas.id = visita_codigos.visita_id
+      AND visitas.compartilhado_em IS NOT NULL
+      AND visitas.tipo_visita = 'pedido'
+    )
+  );
 
 -- -------------------- PRODUTOS --------------------
 ALTER TABLE produtos ENABLE ROW LEVEL SECURITY;
@@ -782,3 +858,41 @@ $$;
 
 REVOKE ALL ON FUNCTION replace_rota_clientes(uuid, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION replace_rota_clientes(uuid, jsonb) TO authenticated;
+
+-- ============================================================
+-- RPC marcar_nota_emitida — única forma da Representada gravar
+-- algo no banco. Toggle entre "emitida" (timestamp) e "pendente"
+-- (NULL). RLS impede que ela altere outros campos do pedido.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION marcar_nota_emitida(
+  p_visita_id uuid,
+  p_marcar    boolean
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (is_representada() OR is_admin()) THEN
+    RAISE EXCEPTION 'Não autorizado';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM visitas
+    WHERE id = p_visita_id
+    AND compartilhado_em IS NOT NULL
+    AND tipo_visita = 'pedido'
+  ) THEN
+    RAISE EXCEPTION 'Pedido não encontrado ou não compartilhado';
+  END IF;
+
+  UPDATE visitas
+  SET nota_emitida_em = CASE WHEN p_marcar THEN now() ELSE NULL END
+  WHERE id = p_visita_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION marcar_nota_emitida(uuid, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION marcar_nota_emitida(uuid, boolean) TO authenticated;

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChipInput, type ProdutoPreview } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
 import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
@@ -49,6 +49,9 @@ export default function VisitaForm() {
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
   const [clienteEmail, setClienteEmail] = useState<string | null>(null)
   const [catalogoProdutos, setCatalogoProdutos] = useState<Map<string, ProdutoPreview> | null>(null)
+  const [compartilhadoEm, setCompartilhadoEm] = useState<string | null>(null)
+  const [notaEmitidaEm, setNotaEmitidaEm] = useState<string | null>(null)
+  const [compartilhando, setCompartilhando] = useState(false)
 
   const totais = useMemo(() => {
     const pct = parsePercentInput(descontoPercent)
@@ -200,6 +203,8 @@ export default function VisitaForm() {
         const vf = (data as { valor_frete?: number }).valor_frete
         const dp = (data as { desconto_percent?: number }).desconto_percent
         const np = (data as { numero_pedido?: number }).numero_pedido
+        setCompartilhadoEm((data as { compartilhado_em?: string | null }).compartilhado_em ?? null)
+        setNotaEmitidaEm((data as { nota_emitida_em?: string | null }).nota_emitida_em ?? null)
         setValorFrete(String(vf ?? 0))
         setDescontoPercent(
           Number(dp ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2, useGrouping: false }),
@@ -575,6 +580,38 @@ export default function VisitaForm() {
     }
   }
 
+  const toggleCompartilhamento = async () => {
+    if (notaEmitidaEm) {
+      // Bloqueia descompartilhar pedido cuja NF já foi emitida pela Representada.
+      toast.error('NF já foi emitida — não é possível descompartilhar')
+      return
+    }
+    setCompartilhando(true)
+    try {
+      // Garante que o pedido está salvo (gera id no caso de criação).
+      const resultado = await salvarDados()
+      if (!resultado) return
+      const querCompartilhar = !compartilhadoEm
+      const { error } = await supabase
+        .from('visitas')
+        .update({ compartilhado_em: querCompartilhar ? new Date().toISOString() : null })
+        .eq('id', resultado.id)
+      if (error) {
+        toast.error('Erro ao atualizar compartilhamento')
+        return
+      }
+      setCompartilhadoEm(querCompartilhar ? new Date().toISOString() : null)
+      toast.success(
+        querCompartilhar
+          ? 'Pedido compartilhado com a Representada'
+          : 'Compartilhamento removido',
+      )
+      if (!visitaId) navigateParaEdicao(resultado.id)
+    } finally {
+      setCompartilhando(false)
+    }
+  }
+
   const navigateParaEdicao = (id: string) => {
     if (execucaoId && clienteId) {
       navigate(`/rotas/execucao/${execucaoId}/visita/${clienteId}/${id}/editar`, { replace: true })
@@ -667,6 +704,20 @@ export default function VisitaForm() {
             <p className="mt-1 text-xs font-medium text-primary-700">
               {tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'} nº {numeroPedido}
             </p>
+          )}
+          {!isVisitaSimples && tipoVisita === 'pedido' && (compartilhadoEm || notaEmitidaEm) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {compartilhadoEm && !notaEmitidaEm && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                  Compartilhado
+                </span>
+              )}
+              {notaEmitidaEm && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-700">
+                  ✓ NF emitida
+                </span>
+              )}
+            </div>
           )}
         </div>
         {isEditing && (
@@ -926,6 +977,37 @@ export default function VisitaForm() {
                 <p className="text-[11px] text-gray-400">
                   Para enviar: cliente precisa ter CNPJ cadastrado e ao menos 1 item.
                 </p>
+              )}
+
+              {tipoVisita === 'pedido' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void toggleCompartilhamento()}
+                    disabled={compartilhando || loading || Boolean(notaEmitidaEm)}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
+                      compartilhadoEm
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        : 'border-blue-500 bg-blue-600 text-white hover:bg-blue-700'
+                    } disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-400`}
+                  >
+                    {compartilhando ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileCheck className="h-4 w-4" />
+                    )}
+                    {compartilhadoEm
+                      ? 'Compartilhado — clique para descompartilhar'
+                      : 'Compartilhar com Representada (NF)'}
+                  </button>
+                  <p className="text-[11px] text-gray-400">
+                    {notaEmitidaEm
+                      ? 'NF já emitida — descompartilhamento bloqueado.'
+                      : compartilhadoEm
+                        ? 'Visível no painel da Representada para emissão de NF.'
+                        : 'Marque para que a Representada veja o pedido no painel dela e emita NF.'}
+                  </p>
+                </>
               )}
             </>
           )}

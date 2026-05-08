@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { Users, ClipboardList, Map, Package, Loader2 } from 'lucide-react'
+import { Users, ClipboardList, Map, Package, Loader2, FileCheck } from 'lucide-react'
 
 interface Counts {
   vendedores: number
   clientes: number
   rotas: number
   produtos: number
+  representadaAtiva: boolean
 }
 
 export default function AdminDashboard() {
-  const [counts, setCounts] = useState<Counts>({ vendedores: 0, clientes: 0, rotas: 0, produtos: 0 })
+  const [counts, setCounts] = useState<Counts>({ vendedores: 0, clientes: 0, rotas: 0, produtos: 0, representadaAtiva: false })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -20,22 +21,31 @@ export default function AdminDashboard() {
       supabase.from('clientes').select('id', { count: 'exact', head: true }),
       supabase.from('rotas').select('id', { count: 'exact', head: true }),
       supabase.from('produtos').select('id', { count: 'exact', head: true }),
-    ]).then(([v, c, r, p]) => {
+      supabase.from('perfis').select('id', { count: 'exact', head: true }).eq('role', 'representada').eq('ativo', true),
+    ]).then(([v, c, r, p, rep]) => {
       setCounts({
         vendedores: v.count ?? 0,
         clientes: c.count ?? 0,
         rotas: r.count ?? 0,
         produtos: p.error ? 0 : (p.count ?? 0),
+        representadaAtiva: (rep.count ?? 0) > 0,
       })
       setLoading(false)
     })
   }, [])
 
   const cards = [
-    { label: 'Vendedores', count: counts.vendedores, icon: Users, to: '/admin/vendedores', color: 'bg-blue-100 text-blue-600' },
-    { label: 'Clientes', count: counts.clientes, icon: ClipboardList, to: '/admin/clientes', color: 'bg-green-100 text-green-600' },
-    { label: 'Rotas', count: counts.rotas, icon: Map, to: '/admin/rotas', color: 'bg-purple-100 text-purple-600' },
-    { label: 'Produtos', count: counts.produtos, icon: Package, to: '/admin/produtos', color: 'bg-amber-100 text-amber-700' },
+    { label: 'Vendedores', count: String(counts.vendedores), icon: Users, to: '/admin/vendedores', color: 'bg-blue-100 text-blue-600' },
+    { label: 'Clientes', count: String(counts.clientes), icon: ClipboardList, to: '/admin/clientes', color: 'bg-green-100 text-green-600' },
+    { label: 'Rotas', count: String(counts.rotas), icon: Map, to: '/admin/rotas', color: 'bg-purple-100 text-purple-600' },
+    { label: 'Produtos', count: String(counts.produtos), icon: Package, to: '/admin/produtos', color: 'bg-amber-100 text-amber-700' },
+    {
+      label: 'Conta da Representada',
+      count: counts.representadaAtiva ? 'Ativa' : 'Não cadastrada',
+      icon: FileCheck,
+      to: '/admin/representada',
+      color: counts.representadaAtiva ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500',
+    },
   ]
 
   return (

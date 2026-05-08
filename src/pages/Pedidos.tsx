@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { SearchInput } from '../components/SearchInput'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
-import { Loader2, ShoppingBag, ChevronRight, Send } from 'lucide-react'
+import { Loader2, ShoppingBag, ChevronRight, Send, FileCheck, CheckCircle2 } from 'lucide-react'
 import { formatarDataBr, normCodigo } from '../lib/utils'
 import type { TipoVisita, StatusVisita } from '../types'
 
@@ -24,6 +24,8 @@ interface PedidoRow {
   total_itens: number
   valor_total: number
   enviado_representada_em: string | null
+  compartilhado_em: string | null
+  nota_emitida_em: string | null
   cliente_fantasia: string
 }
 
@@ -108,7 +110,7 @@ export default function Pedidos() {
       .select(
         `id, numero_pedido, data_visita, tipo_visita, status,
          condicoes_pagamento, valor_frete, desconto_percent,
-         enviado_representada_em, cliente_id,
+         enviado_representada_em, compartilhado_em, nota_emitida_em, cliente_id,
          ${clienteSelect},
          codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)`,
         { count: 'exact' },
@@ -161,6 +163,8 @@ export default function Pedidos() {
             total_itens: codigos.length,
             valor_total: valorTotal,
             enviado_representada_em: (raw.enviado_representada_em as string | null) ?? null,
+            compartilhado_em: (raw.compartilhado_em as string | null) ?? null,
+            nota_emitida_em: (raw.nota_emitida_em as string | null) ?? null,
             cliente_fantasia: cliente?.fantasia ?? '—',
           }
         }),
@@ -241,10 +245,22 @@ export default function Pedidos() {
                 >
                   {tipoLabel[r.tipo_visita]}
                 </span>
-                {r.enviado_representada_em && (
-                  <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700">
+                {r.enviado_representada_em && !r.compartilhado_em && !r.nota_emitida_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-600">
                     <Send className="h-2.5 w-2.5" />
                     Enviado
+                  </span>
+                )}
+                {r.compartilhado_em && !r.nota_emitida_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-700">
+                    <FileCheck className="h-2.5 w-2.5" />
+                    Compartilhado
+                  </span>
+                )}
+                {r.nota_emitida_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    NF emitida
                   </span>
                 )}
               </div>

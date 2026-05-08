@@ -1,8 +1,10 @@
+export type Role = 'vendedor' | 'admin' | 'representada'
+
 export interface Perfil {
   id: string
   user_id: string
   nome: string
-  role: 'vendedor' | 'admin'
+  role: Role
   must_change_password: boolean
   ativo: boolean
   ciclo_dias: number
@@ -91,6 +93,10 @@ export interface Visita {
   desconto_percent?: number
   /** Timestamp do envio do pedido/orçamento para a Representada (WhatsApp). Null = não enviado. */
   enviado_representada_em?: string | null
+  /** Timestamp em que o vendedor compartilhou o pedido com a Representada (visível no painel da Representada). Null = não compartilhado. */
+  compartilhado_em?: string | null
+  /** Timestamp em que a Representada marcou a NF como emitida. Null = ainda não emitida. */
+  nota_emitida_em?: string | null
   criado_em: string
   cliente?: Cliente
   codigos?: VisitaCodigo[]
