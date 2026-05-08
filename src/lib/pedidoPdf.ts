@@ -218,8 +218,8 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   })
 
   const w = innerW
-  // Larguras em mm (soma = largura útil da página)
-  const cw = { c0: 9, c1: 22, c2: 62, c3: 12, c4: 25, c5: 15, c6: 25, c7: 26 }
+  // Colunas curtas ('wrap') ajustam à maior célula (header ou linha); a coluna
+  // Produto ('auto') absorve o espaço restante até preencher `tableWidth`.
   autoTable(doc, {
     startY: y,
     head: [['#', 'Cód.', 'Produto', 'Qtd', 'P. tabela', 'Desc.', 'P. líquido', 'Subtotal']],
@@ -247,17 +247,17 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
     bodyStyles: { font: FONT_MAIN, fontSize: 8 },
     alternateRowStyles: { fillColor: COL_ZEBRA },
     columnStyles: {
-      0: { cellWidth: cw.c0, halign: 'center' },
-      1: { cellWidth: cw.c1, font: FONT_MAIN, fontStyle: 'normal', halign: 'left' },
-      2: { cellWidth: cw.c2, halign: 'left' },
-      3: { cellWidth: cw.c3, halign: 'center' },
-      4: { cellWidth: cw.c4, halign: 'right' },
-      5: { cellWidth: cw.c5, halign: 'center' },
-      6: { cellWidth: cw.c6, halign: 'right' },
-      7: { cellWidth: cw.c7, halign: 'right', fontStyle: 'normal' },
+      0: { cellWidth: 'wrap', halign: 'center' },
+      1: { cellWidth: 'wrap', font: FONT_MAIN, fontStyle: 'normal', halign: 'left' },
+      2: { cellWidth: 'auto', halign: 'left' },
+      3: { cellWidth: 'wrap', halign: 'center' },
+      4: { cellWidth: 'wrap', halign: 'right' },
+      5: { cellWidth: 'wrap', halign: 'center' },
+      6: { cellWidth: 'wrap', halign: 'right' },
+      7: { cellWidth: 'wrap', halign: 'right', fontStyle: 'normal' },
     },
     margin: { left: MARGIN, right: MARGIN },
-    tableWidth: cw.c0 + cw.c1 + cw.c2 + cw.c3 + cw.c4 + cw.c5 + cw.c6 + cw.c7,
+    tableWidth: w,
     showHead: 'everyPage',
   })
 

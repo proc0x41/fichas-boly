@@ -1,11 +1,12 @@
-import type { CodigoItem } from '../types'
+import type { CodigoItem, TipoVisita } from '../types'
+import { REPRESENTADA_EMAIL } from './pedidoPdfConfig'
+import { linkEmail } from './sharePedido'
 
-const REPRESENTADA_PHONE = '551140401847'
 const REPRESENTADA = 'Boly Comércio e Indústria de Encartelados LTDA - EPP'
 
 export interface PedidoRepresentada {
   cnpj: string | null
-  /** Nome do comprador no cliente — enviado no WhatsApp da Representada */
+  /** Nome do comprador no cliente — incluído no corpo do email da Representada */
   comprador: string | null
   itens: CodigoItem[]
   condicoesPagamento: string | null
@@ -48,9 +49,28 @@ export function mensagemPedidoRepresentada(pedido: PedidoRepresentada): string {
   return linhas.join('\n')
 }
 
-export function linkRepresentadaWhatsApp(pedido: PedidoRepresentada): string {
-  const texto = mensagemPedidoRepresentada(pedido)
-  return `https://wa.me/${REPRESENTADA_PHONE}?text=${encodeURIComponent(texto)}`
+/**
+ * Constrói o link `mailto:` para enviar o pedido à Representada (pedidoboly@gmail.com).
+ * O corpo usa `mensagemPedidoRepresentada`.
+ */
+export function linkRepresentadaEmail(
+  pedido: PedidoRepresentada,
+  options: {
+    fantasiaCliente?: string | null
+    numeroPedido?: number | null
+    tipoVisita?: TipoVisita
+  } = {},
+): string {
+  const { fantasiaCliente, numeroPedido, tipoVisita = 'pedido' } = options
+  const tipoLabel = tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'
+  const numeroPart = numeroPedido ? ` nº ${numeroPedido}` : ''
+  const clientePart = fantasiaCliente?.trim() ? ` - ${fantasiaCliente.trim()}` : ''
+  const subject = `${tipoLabel}${numeroPart}${clientePart}`
+  return linkEmail({
+    to: REPRESENTADA_EMAIL,
+    subject,
+    body: mensagemPedidoRepresentada(pedido),
+  })
 }
 
 export function podeEnviarRepresentada(pedido: PedidoRepresentada): boolean {

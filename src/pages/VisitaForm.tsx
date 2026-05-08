@@ -7,9 +7,9 @@ import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
-import { linkRepresentadaWhatsApp, podeEnviarRepresentada } from '../lib/representada'
+import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
-import { compartilharOuBaixarPdf } from '../lib/sharePedido'
+import { baixarPdf, linkEmail, nomeArquivoPedido } from '../lib/sharePedido'
 import { normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
 // Status só é mostrado quando tipo_visita = 'visita' (parada sem pedido).
@@ -47,7 +47,7 @@ export default function VisitaForm() {
   const [clienteNome, setClienteNome] = useState('')
   const [clienteCNPJ, setClienteCNPJ] = useState<string | null>(null)
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
-  const [clienteTelefone, setClienteTelefone] = useState<string | null>(null)
+  const [clienteEmail, setClienteEmail] = useState<string | null>(null)
   const [catalogoProdutos, setCatalogoProdutos] = useState<Map<string, ProdutoPreview> | null>(null)
 
   const totais = useMemo(() => {
@@ -148,19 +148,35 @@ export default function VisitaForm() {
 
   useEffect(() => {
     if (!clienteId) return
-    supabase
-      .from('clientes')
-      .select('fantasia, cnpj, comprador, telefone')
-      .eq('id', clienteId)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setClienteNome(data.fantasia)
-          setClienteCNPJ(data.cnpj ?? null)
-          setClienteComprador(data.comprador?.trim() || null)
-          setClienteTelefone(data.telefone ?? null)
-        }
-      })
+    let cancelled = false
+    ;(async () => {
+      const [{ data: cli }, { data: contatos }] = await Promise.all([
+        supabase
+          .from('clientes')
+          .select('fantasia, cnpj, comprador, email')
+          .eq('id', clienteId)
+          .single(),
+        supabase
+          .from('cliente_contatos')
+          .select('tipo, valor, ordem')
+          .eq('cliente_id', clienteId)
+          .eq('tipo', 'email')
+          .order('ordem', { ascending: true })
+          .limit(1),
+      ])
+      if (cancelled) return
+      if (cli) {
+        setClienteNome(cli.fantasia)
+        setClienteCNPJ(cli.cnpj ?? null)
+        setClienteComprador(cli.comprador?.trim() || null)
+      }
+      const emailContato = (contatos?.[0]?.valor as string | undefined)?.trim()
+      const emailLegado = ((cli as { email?: string | null } | null)?.email ?? '')?.trim()
+      setClienteEmail(emailContato || emailLegado || null)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [clienteId])
 
   useEffect(() => {
@@ -385,12 +401,7 @@ export default function VisitaForm() {
       const blob = await montarPdfBlob(resultado.id)
       if (!blob) return
       const np = resultado.numero ?? 0
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      const prefixo = tipoVisita === 'orcamento' ? 'Orcamento' : 'Pedido'
-      a.download = `${prefixo}_${np || resultado.id.slice(0, 8)}.pdf`
-      a.click()
-      URL.revokeObjectURL(a.href)
+      baixarPdf(blob, nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita))
       toast.success('Salvo e PDF gerado')
       if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
@@ -398,7 +409,49 @@ export default function VisitaForm() {
     }
   }
 
+  const montarBodyEmailCliente = (numero: number): string => {
+    const tipoLabel = tipoVisita === 'orcamento' ? 'orçamento' : 'pedido'
+    const linhas: string[] = []
+    const saudacao = clienteComprador ? `Olá, ${clienteComprador}!` : 'Olá!'
+    linhas.push(saudacao)
+    linhas.push('')
+    linhas.push(
+      numero > 0
+        ? `Segue em anexo o ${tipoLabel} nº ${numero}.`
+        : `Segue em anexo o ${tipoLabel}.`,
+    )
+    linhas.push('')
+    if (totais.qtdItens > 0) {
+      linhas.push(
+        `Itens: ${itens.length} (${totais.qtdItens} ${totais.qtdItens === 1 ? 'unidade' : 'unidades'})`,
+      )
+      linhas.push(`Subtotal: ${fmtBRL(totais.totalTabela)}`)
+      if (totais.pct > 0) {
+        const pctStr = totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+        linhas.push(`Desconto (${pctStr}%): -${fmtBRL(totais.desconto)}`)
+      }
+      if (totais.frete > 0) linhas.push(`Frete: ${fmtBRL(totais.frete)}`)
+      linhas.push(`Total: ${fmtBRL(totais.total)}`)
+      linhas.push('')
+    }
+    if (condicoesPagamento.trim()) {
+      linhas.push(`Condições de pagamento: ${condicoesPagamento.trim()}`)
+    }
+    if (observacao.trim()) {
+      linhas.push(`Observações: ${observacao.trim()}`)
+    }
+    linhas.push('')
+    linhas.push('Atenciosamente,')
+    const assinatura = perfil?.nome ?? 'Vendedor'
+    linhas.push(perfil?.telefone ? `${assinatura} - ${perfil.telefone}` : assinatura)
+    return linhas.join('\n')
+  }
+
   const handleEnviarCliente = async () => {
+    if (!clienteEmail) {
+      toast.error('Cliente sem email cadastrado')
+      return
+    }
     setExportando(true)
     try {
       const resultado = await salvarDados()
@@ -406,11 +459,17 @@ export default function VisitaForm() {
       const blob = await montarPdfBlob(resultado.id)
       if (!blob) return
       const np = resultado.numero ?? 0
-      const r = await compartilharOuBaixarPdf(blob, np, clienteTelefone)
-      if (r === 'cancelled') return
-      if (r === 'shared') toast.success('Compartilhamento aberto')
-      else if (r === 'wa_opened') toast.success('PDF baixado — WhatsApp do cliente aberto; anexe o arquivo.')
-      else toast.success('PDF baixado')
+      baixarPdf(blob, nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita))
+      const tipoLabel = tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'
+      const numeroPart = np ? ` nº ${np}` : ''
+      const subject = `${tipoLabel}${numeroPart} - Boly Encartelados`
+      const link = linkEmail({
+        to: clienteEmail,
+        subject,
+        body: montarBodyEmailCliente(np),
+      })
+      window.open(link, '_blank', 'noopener')
+      toast.success('PDF baixado — email aberto; anexe o arquivo antes de enviar.')
       if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
       setExportando(false)
@@ -429,20 +488,37 @@ export default function VisitaForm() {
       toast.error('Preencha CNPJ do cliente e ao menos 1 item')
       return
     }
-    // Garante que a visita esteja salva (gera id) antes de carimbar e abrir o WhatsApp.
-    const resultado = await salvarDados()
-    if (!resultado) return
-    const { error } = await supabase
-      .from('visitas')
-      .update({ enviado_representada_em: new Date().toISOString() })
-      .eq('id', resultado.id)
-    if (error) {
-      toast.error('Erro ao registrar envio')
-      return
+    setExportando(true)
+    try {
+      // Garante que a visita esteja salva (gera id) antes de carimbar e abrir o email.
+      const resultado = await salvarDados()
+      if (!resultado) return
+      const blob = await montarPdfBlob(resultado.id)
+      if (!blob) return
+      const np = resultado.numero ?? 0
+      const { error } = await supabase
+        .from('visitas')
+        .update({ enviado_representada_em: new Date().toISOString() })
+        .eq('id', resultado.id)
+      if (error) {
+        toast.error('Erro ao registrar envio')
+        return
+      }
+      baixarPdf(blob, nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita))
+      window.open(
+        linkRepresentadaEmail(pedido, {
+          fantasiaCliente: clienteNome,
+          numeroPedido: np || null,
+          tipoVisita,
+        }),
+        '_blank',
+        'noopener',
+      )
+      toast.success('PDF baixado — email da Representada aberto; anexe o arquivo antes de enviar.')
+      if (!visitaId) navigateParaEdicao(resultado.id)
+    } finally {
+      setExportando(false)
     }
-    window.open(linkRepresentadaWhatsApp(pedido), '_blank', 'noopener')
-    toast.success('Marcado como enviado para Representada')
-    if (!visitaId) navigateParaEdicao(resultado.id)
   }
 
   const navigateParaEdicao = (id: string) => {
@@ -762,13 +838,18 @@ export default function VisitaForm() {
               </button>
               <button
                 type="button"
-                disabled={exportando || loading}
+                disabled={!clienteEmail || exportando || loading}
                 onClick={() => void handleEnviarCliente()}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary-600 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-800 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-white disabled:text-gray-400"
               >
                 <Share2 className="h-4 w-4" />
-                Enviar ao cliente (PDF + WhatsApp)
+                Enviar ao cliente (PDF + email)
               </button>
+              {!clienteEmail && (
+                <p className="text-[11px] text-gray-400">
+                  Cliente sem email cadastrado.
+                </p>
+              )}
 
               <button
                 type="button"
@@ -777,7 +858,7 @@ export default function VisitaForm() {
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-green-600 bg-white px-4 py-3 text-sm font-medium text-green-700 transition-colors active:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
               >
                 <Send className="h-4 w-4" />
-                Enviar pedido para Representada
+                Enviar pedido para Representada (email)
               </button>
               {!canRepresentada && (
                 <p className="text-[11px] text-gray-400">
