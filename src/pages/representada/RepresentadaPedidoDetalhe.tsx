@@ -2,10 +2,12 @@ import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { LoadingButton } from '../../components/LoadingButton'
-import { ArrowLeft, Loader2, CheckCircle2, RotateCcw, Phone, Mail, User } from 'lucide-react'
+import { ArrowLeft, Loader2, CheckCircle2, RotateCcw, Phone, Mail, User, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { formatarDataBr, normCodigo, formatCNPJ } from '../../lib/utils'
 import { maskCEP, maskTelefone } from '../../lib/masks'
+import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../../lib/pedidoPdf'
+import { baixarPdf, nomeArquivoPedido } from '../../lib/sharePedido'
 import type { Cliente, ClienteContato } from '../../types'
 
 interface ItemRow {
@@ -34,6 +36,10 @@ interface PedidoFull {
   cliente: Cliente
   contatos: ClienteContato[]
   itens: ItemRow[]
+  /** Dados crus dos códigos preservados pra alimentar o gerador de PDF. */
+  codigosRaw: { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+  /** Catálogo de produtos indexado pelo código normalizado (para o PDF). */
+  produtosPorCodigo: Map<string, ProdutoCatalogo>
   totais: {
     subtotal: number
     desconto: number
@@ -62,6 +68,7 @@ export default function RepresentadaPedidoDetalhe() {
   const [pedido, setPedido] = useState<PedidoFull | null>(null)
   const [loading, setLoading] = useState(true)
   const [marcando, setMarcando] = useState(false)
+  const [exportando, setExportando] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -116,9 +123,10 @@ export default function RepresentadaPedidoDetalhe() {
         return a.tipo === 'telefone' ? -1 : 1
       })
 
-      const produtosPorCodigo = new Map<string, { descricao: string; preco_tabela: number }>()
+      const produtosPorCodigo = new Map<string, ProdutoCatalogo>()
       for (const p of produtosList ?? []) {
         produtosPorCodigo.set(normCodigo(p.codigo as string), {
+          codigo: p.codigo as string,
           descricao: p.descricao as string,
           preco_tabela: Number(p.preco_tabela),
         })
@@ -175,6 +183,8 @@ export default function RepresentadaPedidoDetalhe() {
         cliente: { ...clienteRow, contatos },
         contatos,
         itens,
+        codigosRaw: codigos,
+        produtosPorCodigo,
         totais: {
           subtotal,
           desconto: Math.max(0, subtotal - totalLiquido),
@@ -190,6 +200,51 @@ export default function RepresentadaPedidoDetalhe() {
       cancelled = true
     }
   }, [id, navigate])
+
+  const handleExportarPdf = async () => {
+    if (!pedido) return
+    setExportando(true)
+    try {
+      const blob = buildPedidoPdfBlob({
+        numeroPedido: pedido.numero_pedido ?? 0,
+        // Data do pedido em fuso BR (T12:00:00 evita o salto pra dia anterior em UTC-3).
+        dataEmissao: new Date(pedido.data_visita + 'T12:00:00'),
+        tipoVisita: 'pedido',
+        cliente: pedido.cliente,
+        visita: {
+          condicoes_pagamento: pedido.condicoes_pagamento,
+          observacao: pedido.observacao,
+          valor_frete: pedido.valor_frete,
+          desconto_percent: pedido.desconto_percent,
+        },
+        codigos: pedido.codigosRaw.map((c, i) => ({
+          id: `tmp-${i}`,
+          visita_id: pedido.id,
+          codigo: c.codigo,
+          quantidade: c.quantidade,
+          desconto_percent_override:
+            c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+              ? Number(c.desconto_percent_override)
+              : null,
+        })),
+        produtosPorCodigo: pedido.produtosPorCodigo,
+        vendedor: {
+          nome: pedido.vendedor_nome,
+          telefone: pedido.vendedor_telefone,
+        },
+      })
+      baixarPdf(
+        blob,
+        nomeArquivoPedido(pedido.numero_pedido ?? pedido.id.slice(0, 8), 'pedido'),
+      )
+      toast.success('PDF gerado')
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao gerar PDF')
+    } finally {
+      setExportando(false)
+    }
+  }
 
   const marcarToggle = async () => {
     if (!pedido) return
@@ -421,7 +476,20 @@ export default function RepresentadaPedidoDetalhe() {
       )}
 
       {/* Botão principal */}
-      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-gray-200 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
+      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-gray-200 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.04)] space-y-2">
+        <button
+          type="button"
+          disabled={exportando}
+          onClick={() => void handleExportarPdf()}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 transition-colors active:bg-gray-50 disabled:opacity-50"
+        >
+          {exportando ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <FileDown className="h-4 w-4" />
+          )}
+          Baixar PDF do pedido
+        </button>
         {pedido.nota_emitida_em ? (
           <>
             <p className="mb-2 text-center text-xs text-gray-500">
