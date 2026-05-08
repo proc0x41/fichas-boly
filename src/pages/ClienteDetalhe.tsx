@@ -7,7 +7,7 @@ import { PaginationBar } from '../components/PaginationBar'
 import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE } from '../lib/masks'
-import { normCodigo } from '../lib/utils'
+import { formatarDataBr, normCodigo } from '../lib/utils'
 import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita, TipoVisita } from '../types'
 
 type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
@@ -210,9 +210,7 @@ export default function ClienteDetalhe() {
     { label: 'Dia de Compras', value: cliente.dia_compras },
     {
       label: 'Cliente Desde',
-      value: cliente.cliente_desde
-        ? new Date(cliente.cliente_desde).toLocaleDateString('pt-BR')
-        : null,
+      value: cliente.cliente_desde ? formatarDataBr(cliente.cliente_desde) : null,
     },
     {
       label: 'Displays',
@@ -326,7 +324,7 @@ export default function ClienteDetalhe() {
                       <p className="truncate text-xs text-gray-500">{p.descricao}</p>
                     )}
                     <p className="mt-0.5 text-[11px] text-gray-400">
-                      Última compra: {new Date(p.ultimaCompra + 'T12:00:00').toLocaleDateString('pt-BR')}
+                      Última compra: {formatarDataBr(p.ultimaCompra)}
                       {p.vezesPedido > 1 && ` · ${p.vezesPedido} pedidos`}
                     </p>
                   </div>
@@ -378,7 +376,7 @@ export default function ClienteDetalhe() {
               <div className="mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-gray-700">
-                    {new Date(v.data_visita).toLocaleDateString('pt-BR')}
+                    {formatarDataBr(v.data_visita)}
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${

@@ -50,3 +50,31 @@ export function parseMoneyInput(s: string): number {
   const n = Number(t)
   return Number.isFinite(n) && n >= 0 ? n : 0
 }
+
+/**
+ * Retorna a data de hoje no fuso local como `YYYY-MM-DD`.
+ *
+ * Why: `new Date().toISOString().split('T')[0]` retorna a data em UTC, então
+ * vendedores em UTC-3 entre 21:00 e 23:59 gravariam a visita com data do dia
+ * seguinte.
+ */
+export function dataLocalIso(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
+/**
+ * Formata uma data (string `'YYYY-MM-DD'` ou Date) para `'dd/mm/aaaa'` em pt-BR.
+ *
+ * Why: `new Date('YYYY-MM-DD')` é interpretado como UTC midnight; em UTC-3 o
+ * `toLocaleDateString` mostra o dia anterior. Forçamos meio-dia local antes de
+ * formatar para neutralizar o offset.
+ */
+export function formatarDataBr(value: string | Date | null | undefined): string {
+  if (!value) return ''
+  if (value instanceof Date) return value.toLocaleDateString('pt-BR')
+  const s = value.length >= 10 ? value.slice(0, 10) : value
+  return new Date(`${s}T12:00:00`).toLocaleDateString('pt-BR')
+}

@@ -60,7 +60,7 @@ export default function Dashboard() {
       const { data: rotasData } = await supabase
         .from('rotas')
         .select(
-          'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro, is_cliente)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status))',
+          'id, nome, paradas:rota_clientes(id, cliente_id, ordem, cliente:clientes(fantasia, bairro, is_cliente)), execucoes:rota_execucoes(id, iniciada_em, finalizada_em, visitas(id, cliente_id, status, criado_em))',
         )
         .eq('ativo', true)
         .order('ordem', { ascending: true })
@@ -87,7 +87,7 @@ export default function Dashboard() {
           id: string
           iniciada_em: string
           finalizada_em: string | null
-          visitas: { id: string; cliente_id: string; status: string }[]
+          visitas: { id: string; cliente_id: string; status: string; criado_em: string }[]
         }[]
       }[]
 
@@ -101,10 +101,16 @@ export default function Dashboard() {
 
         const ativa = (r.execucoes ?? []).find((e) => !e.finalizada_em)
         if (ativa) {
+          // Mais nova primeiro; em duplicatas por cliente, mantemos a mais
+          // recente (PostgREST não garante ordem em joins aninhados).
+          const visitasOrdenadas = (ativa.visitas ?? [])
+            .slice()
+            .sort((a, b) => (b.criado_em ?? '').localeCompare(a.criado_em ?? ''))
           const visitaPorCliente = new Map<string, { id: string; status: StatusVisita }>()
-          ;(ativa.visitas ?? []).forEach((v) =>
-            visitaPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita }),
-          )
+          visitasOrdenadas.forEach((v) => {
+            if (visitaPorCliente.has(v.cliente_id)) return
+            visitaPorCliente.set(v.cliente_id, { id: v.id, status: v.status as StatusVisita })
+          })
           const listaStatus = paradas.map((p) => {
             const v = visitaPorCliente.get(p.cliente_id)
             return {

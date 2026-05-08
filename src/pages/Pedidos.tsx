@@ -6,7 +6,7 @@ import { SearchInput } from '../components/SearchInput'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
 import { Loader2, ShoppingBag, ChevronRight, Send } from 'lucide-react'
-import { normCodigo } from '../lib/utils'
+import { formatarDataBr, normCodigo } from '../lib/utils'
 import type { TipoVisita, StatusVisita } from '../types'
 
 type FiltroTipo = 'pedido' | 'orcamento'
@@ -36,7 +36,6 @@ const tipoLabel: Record<TipoVisita, string> = {
 }
 
 const statusLabel: Record<StatusVisita, string> = {
-  pedido: 'Pedido',
   visitado: 'Visitado',
   pendente: 'Pendente',
   nao_encontrado: 'Não enc.',
@@ -44,7 +43,6 @@ const statusLabel: Record<StatusVisita, string> = {
 }
 
 const statusColor: Record<StatusVisita, string> = {
-  pedido: 'bg-gray-100 text-gray-600',
   visitado: 'bg-green-50 text-green-700',
   pendente: 'bg-gray-100 text-gray-500',
   nao_encontrado: 'bg-red-50 text-red-600',
@@ -63,8 +61,11 @@ export default function Pedidos() {
   const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('pedido')
   const [loading, setLoading] = useState(true)
   const [precos, setPrecos] = useState<Map<string, number>>(new Map())
+  const [precosLoaded, setPrecosLoaded] = useState(false)
 
   // Carrega catálogo de preços uma vez (mapa código normalizado → preço de tabela).
+  // Bloqueia o fetch da lista até os preços chegarem para evitar exibir
+  // valores zerados (= apenas frete) no primeiro render.
   useEffect(() => {
     let cancelled = false
     void supabase
@@ -78,6 +79,7 @@ export default function Pedidos() {
           m.set(normCodigo(p.codigo as string), Number(p.preco_tabela))
         }
         setPrecos(m)
+        setPrecosLoaded(true)
       })
     return () => {
       cancelled = true
@@ -90,11 +92,16 @@ export default function Pedidos() {
   }, [search, filtroTipo])
 
   const load = useCallback(async () => {
-    if (!user) return
+    if (!user || !precosLoaded) return
     setLoading(true)
 
     const from = (page - 1) * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
+
+    // `cliente:clientes!inner(...)` força inner join — sem isso o filtro
+    // ilike no embed só esconde o nome (volta `null`), mas o pedido continua
+    // aparecendo com fantasia '—'.
+    const clienteSelect = search.trim() ? 'cliente:clientes!inner(fantasia)' : 'cliente:clientes(fantasia)'
 
     let q = supabase
       .from('visitas')
@@ -102,7 +109,7 @@ export default function Pedidos() {
         `id, numero_pedido, data_visita, tipo_visita, status,
          condicoes_pagamento, valor_frete, desconto_percent,
          enviado_representada_em, cliente_id,
-         cliente:clientes(fantasia),
+         ${clienteSelect},
          codigos:visita_codigos(id, codigo, quantidade)`,
         { count: 'exact' },
       )
@@ -158,7 +165,7 @@ export default function Pedidos() {
     }
 
     setLoading(false)
-  }, [user, page, search, filtroTipo, precos])
+  }, [user, page, search, filtroTipo, precos, precosLoaded])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -247,7 +254,7 @@ export default function Pedidos() {
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
                   <span className="text-xs text-gray-500">
-                    {new Date(r.data_visita + 'T12:00:00').toLocaleDateString('pt-BR')}
+                    {formatarDataBr(r.data_visita)}
                   </span>
                   <span className="text-xs text-gray-400">·</span>
                   <span className="text-xs text-gray-500">

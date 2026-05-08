@@ -10,7 +10,7 @@ import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } fr
 import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { baixarPdf, linkEmail, nomeArquivoPedido } from '../lib/sharePedido'
-import { normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
+import { dataLocalIso, normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
 // Status só é mostrado quando tipo_visita = 'visita' (parada sem pedido).
 // Pedido/orçamento são sempre 'visitado' implicitamente.
@@ -30,7 +30,7 @@ export default function VisitaForm() {
   const navigate = useNavigate()
   const { user, perfil } = useAuth()
 
-  const [dataVisita, setDataVisita] = useState(new Date().toISOString().split('T')[0])
+  const [dataVisita, setDataVisita] = useState(dataLocalIso())
   const [tipoVisita, setTipoVisita] = useState<TipoVisita>('pedido')
   const [status, setStatus] = useState<StatusVisita>('visitado')
   const [observacao, setObservacao] = useState('')
@@ -214,11 +214,14 @@ export default function VisitaForm() {
 
   const carregarUltimaVisita = async () => {
     if (!clienteId) return
+    // Ignora visitas simples (tipo='visita') que não têm itens.
     const { data } = await supabase
       .from('visitas')
       .select('id, codigos:visita_codigos(codigo, quantidade)')
       .eq('cliente_id', clienteId)
+      .in('tipo_visita', ['pedido', 'orcamento'])
       .order('data_visita', { ascending: false })
+      .order('criado_em', { ascending: false })
       .limit(1)
       .maybeSingle()
 
@@ -237,8 +240,10 @@ export default function VisitaForm() {
       .from('visitas')
       .select('condicoes_pagamento')
       .eq('cliente_id', clienteId)
+      .in('tipo_visita', ['pedido', 'orcamento'])
       .not('condicoes_pagamento', 'is', null)
       .order('data_visita', { ascending: false })
+      .order('criado_em', { ascending: false })
       .limit(1)
     if (visitaId) query.neq('id', visitaId)
     const { data } = await query.maybeSingle()
@@ -277,11 +282,13 @@ export default function VisitaForm() {
         toast.error('Erro ao salvar')
         return null
       }
-      await supabase.from('visita_codigos').delete().eq('visita_id', visitaId)
-      if (itens.length > 0) {
-        await supabase.from('visita_codigos').insert(
-          itens.map((i) => ({ visita_id: visitaId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
-        )
+      const { error: codErr } = await supabase.rpc('replace_visita_codigos', {
+        p_visita_id: visitaId,
+        p_codigos: itens.map((i) => ({ codigo: i.codigo.trim(), quantidade: i.quantidade })),
+      })
+      if (codErr) {
+        toast.error('Erro ao salvar itens — itens anteriores foram preservados')
+        return null
       }
       return { id: visitaId, numero: numeroPedido }
     }

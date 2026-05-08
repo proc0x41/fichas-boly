@@ -89,6 +89,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPerfil(null)
     setUser(null)
     setSession(null)
+
+    // Limpa caches do PWA (Workbox guarda respostas do REST por 5 min) e do
+    // localStorage residual. Sem isso, em aparelhos compartilhados o vendedor
+    // seguinte podia ver dados em cache do anterior.
+    if (typeof caches !== 'undefined') {
+      try {
+        const keys = await caches.keys()
+        await Promise.all(keys.map((k) => caches.delete(k)))
+      } catch {
+        // ignora — o logout em si já aconteceu
+      }
+    }
   }
 
   return (

@@ -248,17 +248,25 @@ export default function AdminClientes() {
       const cnpjs = validas.map((r) => r.cnpjRaw).filter((c) => c.length === 14)
       const fantasias = validas.filter((r) => r.cnpjRaw.length !== 14).map((r) => r.fantasia)
 
-      const [{ data: existintesPorCnpj }, { data: existentesPorFantasia }] = await Promise.all([
+      const [resCnpj, resFantasia] = await Promise.all([
         cnpjs.length > 0
           ? supabase.from('clientes').select('id, cnpj').eq('vendedor_id', vendedorImportId).in('cnpj', cnpjs)
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [], error: null }),
         fantasias.length > 0
           ? supabase.from('clientes').select('id, fantasia').eq('vendedor_id', vendedorImportId).in('fantasia', fantasias)
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [], error: null }),
       ])
 
-      const mapCnpj = new Map((existintesPorCnpj ?? []).map((c) => [c.cnpj as string, c.id as string]))
-      const mapFantasia = new Map((existentesPorFantasia ?? []).map((c) => [c.fantasia as string, c.id as string]))
+      // Aborta o import se a checagem de duplicatas falhar — sem isso, todos os
+      // registros seriam tratados como novos e duplicariam clientes existentes.
+      if (resCnpj.error || resFantasia.error) {
+        toast.error('Erro ao verificar duplicatas — importação cancelada')
+        setImporting(false)
+        return
+      }
+
+      const mapCnpj = new Map((resCnpj.data ?? []).map((c) => [c.cnpj as string, c.id as string]))
+      const mapFantasia = new Map((resFantasia.data ?? []).map((c) => [c.fantasia as string, c.id as string]))
 
       // 1 request: busca quais clientes existentes já têm contatos
       const idsExistentes = [...mapCnpj.values(), ...mapFantasia.values()]

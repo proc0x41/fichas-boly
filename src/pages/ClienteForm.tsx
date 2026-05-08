@@ -267,11 +267,12 @@ export default function ClienteForm() {
       return
     }
 
-    // Salva contatos: apaga os existentes e reinserir em ordem
+    // Salva contatos: na edição usa RPC transacional (delete+insert atômico
+    // pra não perder contatos antigos se o insert falhar). Na criação, ainda
+    // não há contatos no banco — basta inserir.
     const contatosValidos = contatos
       .filter((c) => c.valor.trim())
       .map((c, i) => ({
-        cliente_id: clienteId!,
         tipo: c.tipo,
         valor: c.tipo === 'telefone' ? unmask(c.valor) : c.valor.trim(),
         rotulo: c.rotulo.trim() || null,
@@ -279,13 +280,19 @@ export default function ClienteForm() {
       }))
 
     if (isEditing) {
-      await supabase.from('cliente_contatos').delete().eq('cliente_id', clienteId!)
-    }
-
-    if (contatosValidos.length > 0) {
+      const { error: errContatos } = await supabase.rpc('replace_cliente_contatos', {
+        p_cliente_id: clienteId!,
+        p_contatos: contatosValidos,
+      })
+      if (errContatos) {
+        setLoading(false)
+        toast.error('Cliente salvo, mas erro ao salvar contatos — os contatos anteriores foram preservados')
+        return
+      }
+    } else if (contatosValidos.length > 0) {
       const { error: errContatos } = await supabase
         .from('cliente_contatos')
-        .insert(contatosValidos)
+        .insert(contatosValidos.map((c) => ({ ...c, cliente_id: clienteId! })))
       if (errContatos) {
         setLoading(false)
         toast.error('Cliente salvo, mas erro ao salvar contatos')
