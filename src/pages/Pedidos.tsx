@@ -110,7 +110,7 @@ export default function Pedidos() {
          condicoes_pagamento, valor_frete, desconto_percent,
          enviado_representada_em, cliente_id,
          ${clienteSelect},
-         codigos:visita_codigos(id, codigo, quantidade)`,
+         codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)`,
         { count: 'exact' },
       )
       .eq('vendedor_id', user.id)
@@ -133,16 +133,21 @@ export default function Pedidos() {
         (data ?? []).map((r) => {
           const raw = r as Record<string, unknown>
           const cliente = raw.cliente as { fantasia: string } | null
-          const codigos = (raw.codigos as { codigo: string; quantidade: number }[] | null) ?? []
+          const codigos =
+            (raw.codigos as
+              | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+              | null) ?? []
           const desc = Number((raw.desconto_percent as number | null) ?? 0)
           const frete = Number((raw.valor_frete as number | null) ?? 0)
-          const fator = 1 - desc / 100
-          let subtotal = 0
+          // Calcula linha-a-linha porque cada item pode ter override do desconto.
+          let totalLiquido = 0
           for (const c of codigos) {
             const preco = precos.get(normCodigo(c.codigo)) ?? 0
-            subtotal += preco * c.quantidade
+            const override = c.desconto_percent_override
+            const efetivo = override !== null && override !== undefined ? Number(override) : desc
+            totalLiquido += preco * (1 - efetivo / 100) * c.quantidade
           }
-          const valorTotal = subtotal * fator + frete
+          const valorTotal = totalLiquido + frete
           return {
             id: raw.id as string,
             cliente_id: raw.cliente_id as string,

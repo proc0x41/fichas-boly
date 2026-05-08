@@ -190,19 +190,25 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
 
   y = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 4
 
-  const pct = clampPct(input.visita.desconto_percent ?? 0)
-  const fatorLiq = 1 - pct / 100
-  const pctCol = fmtPct(pct)
+  const pctGlobal = clampPct(input.visita.desconto_percent ?? 0)
 
   const rows: string[][] = []
   let totalTabela = 0
   let totalLiquido = 0
+  let temOverride = false
   input.codigos.forEach((vc, idx) => {
     const p = input.produtosPorCodigo.get(normCodigo(vc.codigo))
     const preco = p?.preco_tabela ?? 0
     const subTabela = preco * vc.quantidade
     totalTabela += subTabela
-    const precoLiq = preco * fatorLiq
+    // Override = desconto específico desta linha; null/undefined = usa o global.
+    const override = vc.desconto_percent_override
+    const pctEfetivo = override !== null && override !== undefined ? clampPct(Number(override)) : pctGlobal
+    if (override !== null && override !== undefined && Number(override) !== pctGlobal) {
+      temOverride = true
+    }
+    const fator = 1 - pctEfetivo / 100
+    const precoLiq = preco * fator
     const subLiq = precoLiq * vc.quantidade
     totalLiquido += subLiq
     rows.push([
@@ -211,7 +217,7 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
       p?.descricao ? fixUtf8MojibakeIfNeeded(p.descricao) : 'Não cadastrado',
       String(vc.quantidade),
       fmtBRL(preco),
-      pctCol,
+      fmtPct(pctEfetivo),
       fmtBRL(precoLiq),
       fmtBRL(subLiq),
     ])
@@ -269,11 +275,15 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
 
   ty = ensureVerticalSpace(doc, ty, 42)
 
+  const labelDesconto = temOverride
+    ? 'Desconto (descontos por item)'
+    : `Desconto (${fmtPct(pctGlobal)})`
+
   autoTable(doc, {
     startY: ty,
     body: [
       ['Total (preço de tabela)', fmtBRL(totalTabela)],
-      [`Desconto (${pctCol})`, fmtBRL(valorDesconto)],
+      [labelDesconto, fmtBRL(valorDesconto)],
       ['Frete', fmtBRL(frete)],
       ['Valor total', fmtBRL(total)],
     ],

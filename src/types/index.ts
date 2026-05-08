@@ -101,11 +101,18 @@ export interface VisitaCodigo {
   visita_id: string
   codigo: string
   quantidade: number
+  /**
+   * Desconto % específico desta linha. `null` = herda `visitas.desconto_percent`
+   * (global); `0` = item explicitamente sem desconto.
+   */
+  desconto_percent_override?: number | null
 }
 
 export interface CodigoItem {
   codigo: string
   quantidade: number
+  /** Override do desconto global para esse item (0–100). `null`/undefined = herda. */
+  descontoOverride?: number | null
 }
 
 export interface Rota {

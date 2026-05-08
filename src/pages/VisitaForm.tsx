@@ -52,17 +52,21 @@ export default function VisitaForm() {
 
   const totais = useMemo(() => {
     const pct = parsePercentInput(descontoPercent)
-    const fatorLiq = 1 - pct / 100
     const frete = parseMoneyInput(valorFrete)
     let totalTabela = 0
     let totalLiquido = 0
     let itensSemPreco = 0
+    let temOverride = false
     for (const it of itens) {
       const prod = catalogoProdutos?.get(normCodigo(it.codigo)) ?? null
       const preco = prod?.preco_tabela ?? 0
       if (!prod) itensSemPreco += 1
+      const override = it.descontoOverride
+      const efetivo = override !== null && override !== undefined ? override : pct
+      if (override !== null && override !== undefined && override !== pct) temOverride = true
+      const fator = 1 - efetivo / 100
       totalTabela += preco * it.quantidade
-      totalLiquido += preco * fatorLiq * it.quantidade
+      totalLiquido += preco * fator * it.quantidade
     }
     const desconto = Math.max(0, totalTabela - totalLiquido)
     return {
@@ -74,6 +78,7 @@ export default function VisitaForm() {
       total: totalLiquido + frete,
       qtdItens: itens.reduce((s, i) => s + i.quantidade, 0),
       itensSemPreco,
+      temOverride,
     }
   }, [itens, descontoPercent, valorFrete, catalogoProdutos])
 
@@ -184,7 +189,7 @@ export default function VisitaForm() {
     ;(async () => {
       const { data } = await supabase
         .from('visitas')
-        .select('*, codigos:visita_codigos(codigo, quantidade)')
+        .select('*, codigos:visita_codigos(codigo, quantidade, desconto_percent_override)')
         .eq('id', visitaId)
         .single()
       if (data) {
@@ -202,9 +207,17 @@ export default function VisitaForm() {
         setNumeroPedido(np ?? null)
         setTipoVisita(((data as { tipo_visita?: string }).tipo_visita as TipoVisita) ?? 'pedido')
         setItens(
-          ((data.codigos as { codigo: string; quantidade: number }[]) ?? []).map((c) => ({
+          (
+            (data.codigos as
+              | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+              | undefined) ?? []
+          ).map((c) => ({
             codigo: c.codigo,
             quantidade: c.quantidade,
+            descontoOverride:
+              c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+                ? Number(c.desconto_percent_override)
+                : null,
           })),
         )
       }
@@ -217,7 +230,7 @@ export default function VisitaForm() {
     // Ignora visitas simples (tipo='visita') que não têm itens.
     const { data } = await supabase
       .from('visitas')
-      .select('id, codigos:visita_codigos(codigo, quantidade)')
+      .select('id, codigos:visita_codigos(codigo, quantidade, desconto_percent_override)')
       .eq('cliente_id', clienteId)
       .in('tipo_visita', ['pedido', 'orcamento'])
       .order('data_visita', { ascending: false })
@@ -225,9 +238,21 @@ export default function VisitaForm() {
       .limit(1)
       .maybeSingle()
 
-    const anteriores = (data?.codigos as { codigo: string; quantidade: number }[] | undefined) ?? []
+    const anteriores =
+      (data?.codigos as
+        | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+        | undefined) ?? []
     if (anteriores.length > 0) {
-      setItens(anteriores.map((c) => ({ codigo: c.codigo, quantidade: c.quantidade })))
+      setItens(
+        anteriores.map((c) => ({
+          codigo: c.codigo,
+          quantidade: c.quantidade,
+          descontoOverride:
+            c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+              ? Number(c.desconto_percent_override)
+              : null,
+        })),
+      )
       toast.success(`${anteriores.length} item(ns) carregado(s) da última visita`)
     } else {
       toast('Nenhuma visita anterior encontrada')
@@ -284,7 +309,14 @@ export default function VisitaForm() {
       }
       const { error: codErr } = await supabase.rpc('replace_visita_codigos', {
         p_visita_id: visitaId,
-        p_codigos: itens.map((i) => ({ codigo: i.codigo.trim(), quantidade: i.quantidade })),
+        p_codigos: itens.map((i) => ({
+          codigo: i.codigo.trim(),
+          quantidade: i.quantidade,
+          desconto_percent_override:
+            i.descontoOverride !== null && i.descontoOverride !== undefined
+              ? i.descontoOverride
+              : null,
+        })),
       })
       if (codErr) {
         toast.error('Erro ao salvar itens — itens anteriores foram preservados')
@@ -321,7 +353,15 @@ export default function VisitaForm() {
     setNumeroPedido(novoNumero)
     if (itens.length > 0) {
       const { error: codErr } = await supabase.from('visita_codigos').insert(
-        itens.map((i) => ({ visita_id: novoId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
+        itens.map((i) => ({
+          visita_id: novoId,
+          codigo: i.codigo.trim(),
+          quantidade: i.quantidade,
+          desconto_percent_override:
+            i.descontoOverride !== null && i.descontoOverride !== undefined
+              ? i.descontoOverride
+              : null,
+        })),
       )
       if (codErr) toast.error('Salvo, mas erro ao salvar itens')
     }
@@ -335,7 +375,7 @@ export default function VisitaForm() {
         `
         *,
         cliente:clientes(*),
-        codigos:visita_codigos(id, codigo, quantidade)
+        codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)
       `,
       )
       .eq('id', id)
@@ -361,7 +401,10 @@ export default function VisitaForm() {
         return a.tipo === 'telefone' ? -1 : 1
       }),
     }
-    const codigos = (row.codigos as { codigo: string; quantidade: number }[]) ?? []
+    const codigos =
+      (row.codigos as
+        | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+        | undefined) ?? []
     const { data: produtosList } = await supabase.from('produtos').select('codigo, descricao, preco_tabela').eq('ativo', true)
     const produtosPorCodigo = new Map<string, ProdutoCatalogo>()
     for (const p of produtosList ?? []) {
@@ -391,6 +434,10 @@ export default function VisitaForm() {
         visita_id: id,
         codigo: c.codigo,
         quantidade: c.quantidade,
+        desconto_percent_override:
+          c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+            ? Number(c.desconto_percent_override)
+            : null,
       })),
       produtosPorCodigo,
       vendedor: {
@@ -706,7 +753,13 @@ export default function VisitaForm() {
                 Reaproveitar última
               </button>
             </div>
-            <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} produtosCatalogo={catalogoProdutos} />
+            <ChipInput
+              itens={itens}
+              onChange={setItens}
+              onLookupCodigo={lookupCodigo}
+              produtosCatalogo={catalogoProdutos}
+              descontoGlobalPercent={totais.pct}
+            />
             <p className="mt-1 text-[11px] text-gray-400">
               Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
             </p>
@@ -792,10 +845,12 @@ export default function VisitaForm() {
                 <dt>Subtotal (tabela)</dt>
                 <dd className="tabular-nums">{fmtBRL(totais.totalTabela)}</dd>
               </div>
-              {totais.pct > 0 && (
+              {totais.desconto > 0 && (
                 <div className="flex justify-between text-red-600">
                   <dt>
-                    Desconto ({totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)
+                    {totais.temOverride
+                      ? 'Desconto (com overrides por item)'
+                      : `Desconto (${totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)`}
                   </dt>
                   <dd className="tabular-nums">- {fmtBRL(totais.desconto)}</dd>
                 </div>

@@ -135,7 +135,12 @@ CREATE TABLE IF NOT EXISTS visita_codigos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   visita_id uuid REFERENCES visitas ON DELETE CASCADE NOT NULL,
   codigo text NOT NULL CHECK (char_length(codigo) >= 1 AND char_length(codigo) <= 20),
-  quantidade int NOT NULL DEFAULT 1 CHECK (quantidade > 0 AND quantidade <= 9999)
+  quantidade int NOT NULL DEFAULT 1 CHECK (quantidade > 0 AND quantidade <= 9999),
+  -- Desconto % específico do item. NULL = herda visitas.desconto_percent (global);
+  -- 0 = item explicitamente sem desconto mesmo havendo desconto global.
+  desconto_percent_override numeric(5, 2)
+    CHECK (desconto_percent_override IS NULL
+           OR (desconto_percent_override >= 0 AND desconto_percent_override <= 100))
 );
 
 CREATE INDEX IF NOT EXISTS idx_visita_codigos_visita ON visita_codigos(visita_id);
@@ -668,11 +673,17 @@ BEGIN
   DELETE FROM visita_codigos WHERE visita_id = p_visita_id;
 
   IF jsonb_array_length(p_codigos) > 0 THEN
-    INSERT INTO visita_codigos (visita_id, codigo, quantidade)
+    INSERT INTO visita_codigos (visita_id, codigo, quantidade, desconto_percent_override)
     SELECT
       p_visita_id,
       btrim(c->>'codigo'),
-      (c->>'quantidade')::int
+      (c->>'quantidade')::int,
+      CASE
+        WHEN c ? 'desconto_percent_override'
+             AND jsonb_typeof(c->'desconto_percent_override') = 'number'
+        THEN (c->>'desconto_percent_override')::numeric
+        ELSE NULL
+      END
     FROM jsonb_array_elements(p_codigos) AS c;
   END IF;
 END;

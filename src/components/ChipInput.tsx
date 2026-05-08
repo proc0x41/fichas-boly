@@ -3,7 +3,7 @@ import { X, Plus, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { CodigoItem } from '../types'
 import { stripAccents } from '../lib/masks'
-import { normCodigo } from '../lib/utils'
+import { normCodigo, parsePercentInput } from '../lib/utils'
 
 export interface ProdutoPreview {
   descricao: string
@@ -18,11 +18,93 @@ interface Props {
   onLookupCodigo?: (codigo: string) => Promise<ProdutoPreview | null>
   /** Catálogo de produtos (chave = código normalizado) para exibir descrição em cada chip. */
   produtosCatalogo?: Map<string, ProdutoPreview> | null
+  /** Desconto % global do pedido (0–100). Usado para exibir o efetivo de cada item quando não há override. */
+  descontoGlobalPercent?: number
   maxLength?: number
   maxItems?: number
 }
 
-export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, maxLength = 20, maxItems = 400 }: Props) {
+function fmtPct(n: number): string {
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: 2, useGrouping: false })
+}
+
+interface ChipDiscountProps {
+  override: number | null | undefined
+  global: number
+  onChange: (next: number | null) => void
+}
+
+function ChipDiscount({ override, global, onChange }: ChipDiscountProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const hasOverride = override !== null && override !== undefined
+  const effective = hasOverride ? override! : global
+
+  const startEdit = () => {
+    setDraft(hasOverride ? fmtPct(override!) : '')
+    setEditing(true)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  const save = () => {
+    const trimmed = draft.trim()
+    if (trimmed === '') {
+      // Vazio = limpa o override e volta a herdar o global.
+      onChange(null)
+    } else {
+      onChange(parsePercentInput(trimmed))
+    }
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            save()
+          } else if (e.key === 'Escape') {
+            setEditing(false)
+          }
+        }}
+        onBlur={save}
+        placeholder={`${fmtPct(global)}%`}
+        maxLength={6}
+        aria-label="Desconto deste item em percentual"
+        className="w-14 rounded border border-primary-500 px-1 py-0.5 text-center text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={startEdit}
+      title={
+        hasOverride
+          ? 'Desconto específico deste item — clique para alterar (vazio = volta para o global)'
+          : 'Herda o desconto global — clique para sobrescrever'
+      }
+      className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums transition-colors ${
+        hasOverride
+          ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-400'
+          : 'bg-white/80 text-gray-500'
+      }`}
+    >
+      {fmtPct(effective)}%
+    </button>
+  )
+}
+
+export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, descontoGlobalPercent = 0, maxLength = 20, maxItems = 400 }: Props) {
   const [codigo, setCodigo] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [preview, setPreview] = useState<ProdutoPreview | null>(null)
@@ -142,6 +224,14 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
 
   const remover = (idx: number) => {
     onChange(itens.filter((_, i) => i !== idx))
+  }
+
+  const setOverride = (idx: number, novo: number | null) => {
+    onChange(
+      itens.map((it, i) =>
+        i === idx ? { ...it, descontoOverride: novo } : it,
+      ),
+    )
   }
 
   const handleCodigoKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -310,11 +400,16 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, m
                 className="flex items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-1.5">
+                  <div className="flex flex-wrap items-baseline gap-1.5">
                     <span className="font-mono font-semibold">{item.codigo}</span>
                     <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold text-primary-800">
                       ×{item.quantidade}
                     </span>
+                    <ChipDiscount
+                      override={item.descontoOverride}
+                      global={descontoGlobalPercent}
+                      onChange={(v) => setOverride(idx, v)}
+                    />
                   </div>
                   {prod ? (
                     <p className="mt-0.5 truncate text-[11px] text-gray-600">{prod.descricao}</p>
