@@ -4,12 +4,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChipInput, type ProdutoPreview } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck, MessageCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
 import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
-import { baixarPdf, linkEmail, nomeArquivoPedido } from '../lib/sharePedido'
+import { baixarPdf, linkEmail, linkWhatsApp, nomeArquivoPedido, telefoneParaWaMe } from '../lib/sharePedido'
 import { dataLocalIso, normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
 // Status só é mostrado quando tipo_visita = 'visita' (parada sem pedido).
@@ -48,6 +48,7 @@ export default function VisitaForm() {
   const [clienteCNPJ, setClienteCNPJ] = useState<string | null>(null)
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
   const [clienteEmail, setClienteEmail] = useState<string | null>(null)
+  const [clienteTelefone, setClienteTelefone] = useState<string | null>(null)
   const [catalogoProdutos, setCatalogoProdutos] = useState<Map<string, ProdutoPreview> | null>(null)
   const [compartilhadoEm, setCompartilhadoEm] = useState<string | null>(null)
   const [notaEmitidaEm, setNotaEmitidaEm] = useState<string | null>(null)
@@ -161,16 +162,15 @@ export default function VisitaForm() {
       const [{ data: cli }, { data: contatos }] = await Promise.all([
         supabase
           .from('clientes')
-          .select('fantasia, cnpj, comprador, email')
+          .select('fantasia, cnpj, comprador, email, telefone')
           .eq('id', clienteId)
           .single(),
         supabase
           .from('cliente_contatos')
           .select('tipo, valor, ordem')
           .eq('cliente_id', clienteId)
-          .eq('tipo', 'email')
-          .order('ordem', { ascending: true })
-          .limit(1),
+          .in('tipo', ['email', 'telefone'])
+          .order('ordem', { ascending: true }),
       ])
       if (cancelled) return
       if (cli) {
@@ -178,9 +178,13 @@ export default function VisitaForm() {
         setClienteCNPJ(cli.cnpj ?? null)
         setClienteComprador(cli.comprador?.trim() || null)
       }
-      const emailContato = (contatos?.[0]?.valor as string | undefined)?.trim()
+      const lista = (contatos ?? []) as { tipo: string; valor: string; ordem: number }[]
+      const primeiroEmail = lista.find((c) => c.tipo === 'email')?.valor?.trim()
+      const primeiroTel = lista.find((c) => c.tipo === 'telefone')?.valor?.trim()
       const emailLegado = ((cli as { email?: string | null } | null)?.email ?? '')?.trim()
-      setClienteEmail(emailContato || emailLegado || null)
+      const telLegado = ((cli as { telefone?: string | null } | null)?.telefone ?? '')?.trim()
+      setClienteEmail(primeiroEmail || emailLegado || null)
+      setClienteTelefone(primeiroTel || telLegado || null)
     })()
     return () => {
       cancelled = true
@@ -468,42 +472,19 @@ export default function VisitaForm() {
     }
   }
 
-  const montarBodyEmailCliente = (numero: number): string => {
-    const tipoLabel = tipoVisita === 'orcamento' ? 'orçamento' : 'pedido'
-    const linhas: string[] = []
-    const saudacao = clienteComprador ? `Olá, ${clienteComprador}!` : 'Olá!'
-    linhas.push(saudacao)
-    linhas.push('')
-    linhas.push(
-      numero > 0
-        ? `Segue em anexo o ${tipoLabel} nº ${numero}.`
-        : `Segue em anexo o ${tipoLabel}.`,
-    )
-    linhas.push('')
-    if (totais.qtdItens > 0) {
-      linhas.push(
-        `Itens: ${itens.length} (${totais.qtdItens} ${totais.qtdItens === 1 ? 'unidade' : 'unidades'})`,
-      )
-      linhas.push(`Subtotal: ${fmtBRL(totais.totalTabela)}`)
-      if (totais.pct > 0) {
-        const pctStr = totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
-        linhas.push(`Desconto (${pctStr}%): -${fmtBRL(totais.desconto)}`)
-      }
-      if (totais.frete > 0) linhas.push(`Frete: ${fmtBRL(totais.frete)}`)
-      linhas.push(`Total: ${fmtBRL(totais.total)}`)
-      linhas.push('')
-    }
-    if (condicoesPagamento.trim()) {
-      linhas.push(`Condições de pagamento: ${condicoesPagamento.trim()}`)
-    }
-    if (observacao.trim()) {
-      linhas.push(`Observações: ${observacao.trim()}`)
-    }
-    linhas.push('')
-    linhas.push('Atenciosamente,')
-    const assinatura = perfil?.nome ?? 'Vendedor'
-    linhas.push(perfil?.telefone ? `${assinatura} - ${perfil.telefone}` : assinatura)
-    return linhas.join('\n')
+  /**
+   * Mensagem padrão usada tanto pelo email quanto pelo WhatsApp.
+   * Formato definido pelo time comercial — manter conciso e amigável.
+   */
+  const montarMensagemCliente = (numero: number): string => {
+    const tipo = tipoVisita === 'orcamento' ? 'orçamento' : 'pedido'
+    const nome = clienteComprador?.trim() || clienteNome?.trim() || 'cliente'
+    const numeroFmt = numero > 0 ? ` nº ${numero}` : ''
+    return [
+      `Olá, ${nome}`,
+      `Segue em anexo, ${tipo}${numeroFmt}.`,
+      `Aguardamos seu breve retorno para darmos continuidade no ${tipo}.`,
+    ].join('\n')
   }
 
   const handleEnviarCliente = async () => {
@@ -525,10 +506,40 @@ export default function VisitaForm() {
       const link = linkEmail({
         to: clienteEmail,
         subject,
-        body: montarBodyEmailCliente(np),
+        body: montarMensagemCliente(np),
       })
       window.open(link, '_blank', 'noopener')
       toast.success('PDF baixado — email aberto; anexe o arquivo antes de enviar.')
+      if (!visitaId) navigateParaEdicao(resultado.id)
+    } finally {
+      setExportando(false)
+    }
+  }
+
+  const handleEnviarClienteWhatsApp = async () => {
+    if (!clienteTelefone) {
+      toast.error('Cliente sem telefone cadastrado')
+      return
+    }
+    if (!telefoneParaWaMe(clienteTelefone)) {
+      toast.error('Telefone do cliente inválido (mínimo 10 dígitos)')
+      return
+    }
+    setExportando(true)
+    try {
+      const resultado = await salvarDados()
+      if (!resultado) return
+      const blob = await montarPdfBlob(resultado.id)
+      if (!blob) return
+      const np = resultado.numero ?? 0
+      baixarPdf(blob, nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita))
+      const link = linkWhatsApp(clienteTelefone, montarMensagemCliente(np))
+      if (!link) {
+        toast.error('Telefone do cliente inválido')
+        return
+      }
+      window.open(link, '_blank', 'noopener')
+      toast.success('PDF baixado — WhatsApp aberto; anexe o arquivo antes de enviar.')
       if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
       setExportando(false)
@@ -961,6 +972,21 @@ export default function VisitaForm() {
               {!clienteEmail && (
                 <p className="text-[11px] text-gray-400">
                   Cliente sem email cadastrado.
+                </p>
+              )}
+
+              <button
+                type="button"
+                disabled={!clienteTelefone || exportando || loading}
+                onClick={() => void handleEnviarClienteWhatsApp()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-white disabled:text-gray-400"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Enviar ao cliente (PDF + WhatsApp)
+              </button>
+              {!clienteTelefone && (
+                <p className="text-[11px] text-gray-400">
+                  Cliente sem telefone cadastrado.
                 </p>
               )}
 

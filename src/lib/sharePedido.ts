@@ -46,3 +46,25 @@ export function linkEmail({
   const qs = params.toString().replace(/\+/g, '%20')
   return `mailto:${encodeURIComponent(to)}?${qs}`
 }
+
+/**
+ * Normaliza um telefone BR para o formato esperado pelo wa.me:
+ * apenas dígitos, com DDI 55 prefixado. Retorna `null` se não houver
+ * dígitos suficientes (mínimo 10 = DDD + número).
+ */
+export function telefoneParaWaMe(telefone: string | null | undefined): string | null {
+  if (!telefone?.trim()) return null
+  const d = telefone.replace(/\D/g, '')
+  if (d.length < 10) return null
+  return d.startsWith('55') ? d : `55${d}`
+}
+
+/**
+ * Constrói um link `https://wa.me/...` com texto pré-preenchido. Retorna
+ * `null` se o telefone for inválido (chamador deve mostrar erro ao usuário).
+ */
+export function linkWhatsApp(telefone: string | null | undefined, texto: string): string | null {
+  const num = telefoneParaWaMe(telefone)
+  if (!num) return null
+  return `https://wa.me/${num}?text=${encodeURIComponent(texto)}`
+}
