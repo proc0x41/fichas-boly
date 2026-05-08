@@ -1,51 +1,48 @@
-/** Dígitos com DDI 55 para wa.me */
-export function telefoneParaWaMe(telefone: string | null | undefined): string | null {
-  if (!telefone?.trim()) return null
-  const d = telefone.replace(/\D/g, '')
-  if (d.length < 10) return null
-  const com55 = d.startsWith('55') ? d : `55${d}`
-  return com55
+import type { TipoVisita } from '../types'
+
+/** Retorna o nome do arquivo PDF (Pedido_X.pdf ou Orcamento_X.pdf). */
+export function nomeArquivoPedido(numeroPedido: number | string, tipo: TipoVisita = 'pedido'): string {
+  const prefixo = tipo === 'orcamento' ? 'Orcamento' : 'Pedido'
+  return `${prefixo}_${numeroPedido}.pdf`
 }
 
-export function nomeArquivoPedido(numeroPedido: number): string {
-  return `Pedido_${numeroPedido}.pdf`
-}
-
-export async function compartilharOuBaixarPdf(
-  blob: Blob,
-  numeroPedido: number,
-  telefoneCliente: string | null | undefined,
-): Promise<'shared' | 'downloaded' | 'wa_opened' | 'cancelled'> {
-  const file = new File([blob], nomeArquivoPedido(numeroPedido), { type: 'application/pdf' })
-
-  if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: `Pedido ${numeroPedido}`,
-        text: 'Segue o pedido em PDF.',
-      })
-      return 'shared'
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return 'cancelled'
-    }
-  }
-
+/** Dispara o download do blob como arquivo. */
+export function baixarPdf(blob: Blob, nome: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = nomeArquivoPedido(numeroPedido)
+  a.download = nome
   a.click()
   URL.revokeObjectURL(url)
+}
 
-  const wa = telefoneParaWaMe(telefoneCliente)
-  if (wa) {
-    const text = encodeURIComponent(
-      `Olá! Segue o pedido nº ${numeroPedido} em anexo (arquivo ${nomeArquivoPedido(numeroPedido)}).`,
-    )
-    window.open(`https://wa.me/${wa}?text=${text}`, '_blank', 'noopener')
-    return 'wa_opened'
-  }
+/**
+ * Tamanho máximo seguro do `body` em mailto:. Outlook (desktop) corta URLs longas
+ * em torno de 2000 caracteres; ficamos abaixo disso já considerando overhead do
+ * percent-encoding e do prefixo `mailto:?subject=...&body=`.
+ */
+const MAILTO_BODY_MAX = 1500
 
-  return 'downloaded'
+/** Trunca o corpo se ultrapassar o limite seguro do mailto, anexando reticências. */
+export function truncarBodyEmail(body: string): string {
+  if (body.length <= MAILTO_BODY_MAX) return body
+  return body.slice(0, MAILTO_BODY_MAX - 3).trimEnd() + '...'
+}
+
+/** Constrói um link `mailto:` com assunto e corpo já preenchidos. */
+export function linkEmail({
+  to,
+  subject,
+  body,
+}: {
+  to: string
+  subject: string
+  body: string
+}): string {
+  const params = new URLSearchParams()
+  params.set('subject', subject)
+  params.set('body', truncarBodyEmail(body))
+  // URLSearchParams usa '+' para espaço; mailto: padrão usa '%20'.
+  const qs = params.toString().replace(/\+/g, '%20')
+  return `mailto:${encodeURIComponent(to)}?${qs}`
 }
