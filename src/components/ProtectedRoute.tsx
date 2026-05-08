@@ -22,5 +22,18 @@ export function ProtectedRoute() {
     return <Navigate to="/trocar-senha" replace />
   }
 
+  // Hard role partition: representada NUNCA vê rotas de vendedor/admin e
+  // vendedor/admin NUNCA cai dentro de /representada. (RLS já bloqueia os
+  // dados; este guard é só pra UX — evita renderizar Layout errado.)
+  if (perfil) {
+    const naRotaRepresentada = location.pathname.startsWith('/representada')
+    if (perfil.role === 'representada' && !naRotaRepresentada && location.pathname !== '/trocar-senha') {
+      return <Navigate to="/representada" replace />
+    }
+    if (perfil.role !== 'representada' && naRotaRepresentada) {
+      return <Navigate to="/" replace />
+    }
+  }
+
   return <Outlet />
 }

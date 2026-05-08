@@ -5,8 +5,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { SearchInput } from '../components/SearchInput'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
-import { Loader2, ShoppingBag, ChevronRight, Send } from 'lucide-react'
-import { normCodigo } from '../lib/utils'
+import { Loader2, ShoppingBag, ChevronRight, Send, FileCheck, CheckCircle2 } from 'lucide-react'
+import { formatarDataBr, normCodigo } from '../lib/utils'
 import type { TipoVisita, StatusVisita } from '../types'
 
 type FiltroTipo = 'pedido' | 'orcamento'
@@ -24,6 +24,8 @@ interface PedidoRow {
   total_itens: number
   valor_total: number
   enviado_representada_em: string | null
+  compartilhado_em: string | null
+  nota_emitida_em: string | null
   cliente_fantasia: string
 }
 
@@ -36,7 +38,6 @@ const tipoLabel: Record<TipoVisita, string> = {
 }
 
 const statusLabel: Record<StatusVisita, string> = {
-  pedido: 'Pedido',
   visitado: 'Visitado',
   pendente: 'Pendente',
   nao_encontrado: 'Não enc.',
@@ -44,7 +45,6 @@ const statusLabel: Record<StatusVisita, string> = {
 }
 
 const statusColor: Record<StatusVisita, string> = {
-  pedido: 'bg-gray-100 text-gray-600',
   visitado: 'bg-green-50 text-green-700',
   pendente: 'bg-gray-100 text-gray-500',
   nao_encontrado: 'bg-red-50 text-red-600',
@@ -63,8 +63,11 @@ export default function Pedidos() {
   const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('pedido')
   const [loading, setLoading] = useState(true)
   const [precos, setPrecos] = useState<Map<string, number>>(new Map())
+  const [precosLoaded, setPrecosLoaded] = useState(false)
 
   // Carrega catálogo de preços uma vez (mapa código normalizado → preço de tabela).
+  // Bloqueia o fetch da lista até os preços chegarem para evitar exibir
+  // valores zerados (= apenas frete) no primeiro render.
   useEffect(() => {
     let cancelled = false
     void supabase
@@ -78,6 +81,7 @@ export default function Pedidos() {
           m.set(normCodigo(p.codigo as string), Number(p.preco_tabela))
         }
         setPrecos(m)
+        setPrecosLoaded(true)
       })
     return () => {
       cancelled = true
@@ -90,20 +94,25 @@ export default function Pedidos() {
   }, [search, filtroTipo])
 
   const load = useCallback(async () => {
-    if (!user) return
+    if (!user || !precosLoaded) return
     setLoading(true)
 
     const from = (page - 1) * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
+
+    // `cliente:clientes!inner(...)` força inner join — sem isso o filtro
+    // ilike no embed só esconde o nome (volta `null`), mas o pedido continua
+    // aparecendo com fantasia '—'.
+    const clienteSelect = search.trim() ? 'cliente:clientes!inner(fantasia)' : 'cliente:clientes(fantasia)'
 
     let q = supabase
       .from('visitas')
       .select(
         `id, numero_pedido, data_visita, tipo_visita, status,
          condicoes_pagamento, valor_frete, desconto_percent,
-         enviado_representada_em, cliente_id,
-         cliente:clientes(fantasia),
-         codigos:visita_codigos(id, codigo, quantidade)`,
+         enviado_representada_em, compartilhado_em, nota_emitida_em, cliente_id,
+         ${clienteSelect},
+         codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)`,
         { count: 'exact' },
       )
       .eq('vendedor_id', user.id)
@@ -126,16 +135,21 @@ export default function Pedidos() {
         (data ?? []).map((r) => {
           const raw = r as Record<string, unknown>
           const cliente = raw.cliente as { fantasia: string } | null
-          const codigos = (raw.codigos as { codigo: string; quantidade: number }[] | null) ?? []
+          const codigos =
+            (raw.codigos as
+              | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+              | null) ?? []
           const desc = Number((raw.desconto_percent as number | null) ?? 0)
           const frete = Number((raw.valor_frete as number | null) ?? 0)
-          const fator = 1 - desc / 100
-          let subtotal = 0
+          // Calcula linha-a-linha porque cada item pode ter override do desconto.
+          let totalLiquido = 0
           for (const c of codigos) {
             const preco = precos.get(normCodigo(c.codigo)) ?? 0
-            subtotal += preco * c.quantidade
+            const override = c.desconto_percent_override
+            const efetivo = override !== null && override !== undefined ? Number(override) : desc
+            totalLiquido += preco * (1 - efetivo / 100) * c.quantidade
           }
-          const valorTotal = subtotal * fator + frete
+          const valorTotal = totalLiquido + frete
           return {
             id: raw.id as string,
             cliente_id: raw.cliente_id as string,
@@ -149,6 +163,8 @@ export default function Pedidos() {
             total_itens: codigos.length,
             valor_total: valorTotal,
             enviado_representada_em: (raw.enviado_representada_em as string | null) ?? null,
+            compartilhado_em: (raw.compartilhado_em as string | null) ?? null,
+            nota_emitida_em: (raw.nota_emitida_em as string | null) ?? null,
             cliente_fantasia: cliente?.fantasia ?? '—',
           }
         }),
@@ -158,7 +174,7 @@ export default function Pedidos() {
     }
 
     setLoading(false)
-  }, [user, page, search, filtroTipo, precos])
+  }, [user, page, search, filtroTipo, precos, precosLoaded])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -229,10 +245,22 @@ export default function Pedidos() {
                 >
                   {tipoLabel[r.tipo_visita]}
                 </span>
-                {r.enviado_representada_em && (
-                  <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700">
+                {r.enviado_representada_em && !r.compartilhado_em && !r.nota_emitida_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-600">
                     <Send className="h-2.5 w-2.5" />
                     Enviado
+                  </span>
+                )}
+                {r.compartilhado_em && !r.nota_emitida_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-700">
+                    <FileCheck className="h-2.5 w-2.5" />
+                    Compartilhado
+                  </span>
+                )}
+                {r.nota_emitida_em && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    NF emitida
                   </span>
                 )}
               </div>
@@ -247,7 +275,7 @@ export default function Pedidos() {
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
                   <span className="text-xs text-gray-500">
-                    {new Date(r.data_visita + 'T12:00:00').toLocaleDateString('pt-BR')}
+                    {formatarDataBr(r.data_visita)}
                   </span>
                   <span className="text-xs text-gray-400">·</span>
                   <span className="text-xs text-gray-500">

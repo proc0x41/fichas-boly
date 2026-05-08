@@ -81,6 +81,24 @@ export default function AdminProdutos() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       // raw: false usa texto formatado da célula — evita "3,50" no CSV virar número 350 (parse US)
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '', raw: false })
+
+      // Pré-carrega catálogo existente uma vez e indexa pelo código normalizado
+      // (lower+trim). Sem isso, eq('codigo', c) é case-sensitive e produtos com
+      // capitalização diferente não eram achados → insert falhava no índice
+      // único `lower(trim(codigo))` e a linha ia pra "ignoradas".
+      const { data: existentes, error: loadErr } = await supabase
+        .from('produtos')
+        .select('id, codigo')
+      if (loadErr) {
+        toast.error('Erro ao carregar catálogo — importação cancelada')
+        setImporting(false)
+        return
+      }
+      const idPorCodigo = new Map<string, string>()
+      for (const p of existentes ?? []) {
+        idPorCodigo.set(normCodigo(p.codigo as string), p.id as string)
+      }
+
       let ok = 0
       let err = 0
       for (const row of rows) {
@@ -100,8 +118,8 @@ export default function AdminProdutos() {
           continue
         }
         const descNorm = fixUtf8MojibakeIfNeeded(desc)
-        const { data: exist } = await supabase.from('produtos').select('id').eq('codigo', c).maybeSingle()
-        if (exist?.id) {
+        const existId = idPorCodigo.get(c)
+        if (existId) {
           const { error } = await supabase
             .from('produtos')
             .update({
@@ -109,18 +127,26 @@ export default function AdminProdutos() {
               preco_tabela: pr,
               ativo: true,
             })
-            .eq('id', exist.id)
+            .eq('id', existId)
           if (error) err++
           else ok++
         } else {
-          const { error } = await supabase.from('produtos').insert({
-            codigo: c,
-            descricao: descNorm,
-            preco_tabela: pr,
-            ativo: true,
-          })
-          if (error) err++
-          else ok++
+          const { data: inserido, error } = await supabase
+            .from('produtos')
+            .insert({
+              codigo: c,
+              descricao: descNorm,
+              preco_tabela: pr,
+              ativo: true,
+            })
+            .select('id')
+            .single()
+          if (error || !inserido) {
+            err++
+          } else {
+            idPorCodigo.set(c, inserido.id as string)
+            ok++
+          }
         }
       }
       toast.success(`Importação: ${ok} linhas OK${err ? `, ${err} ignoradas` : ''}`)

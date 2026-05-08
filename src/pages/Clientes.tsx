@@ -7,7 +7,7 @@ import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
 import { stripAccents } from '../lib/masks'
 import { Plus, Users, Loader2 } from 'lucide-react'
-import type { Cliente } from '../types'
+import type { Cliente, ClienteContato } from '../types'
 
 const PAGE_SIZE = 25
 
@@ -29,7 +29,10 @@ export default function Clientes() {
     const to = from + PAGE_SIZE - 1
     let q = supabase
       .from('clientes')
-      .select('*, ultima_visita:visitas(data_visita)', { count: 'exact' })
+      .select(
+        '*, ultima_visita:visitas(data_visita), contatos:cliente_contatos(id, cliente_id, tipo, valor, rotulo, ordem, criado_em)',
+        { count: 'exact' },
+      )
       .eq('ativo', true)
       .order('fantasia')
       .range(from, to)
@@ -67,7 +70,8 @@ export default function Clientes() {
             visitas && visitas.length > 0
               ? visitas.sort((a, b) => b.data_visita.localeCompare(a.data_visita))[0].data_visita
               : null
-          return { ...c, ultima_visita: ultima } as Cliente
+          const contatos = (c.contatos as ClienteContato[] | null) ?? []
+          return { ...c, ultima_visita: ultima, contatos } as Cliente
         }),
       )
       setTotal(count ?? 0)

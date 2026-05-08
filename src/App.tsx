@@ -3,7 +3,9 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
+import { RepresentadaRoute } from './components/RepresentadaRoute'
 import { Layout } from './components/Layout'
+import { RepresentadaLayout } from './components/RepresentadaLayout'
 import { InstallPrompt } from './components/InstallPrompt'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import Login from './pages/Login'
@@ -24,6 +26,9 @@ import AdminClientes from './pages/admin/AdminClientes'
 import AdminRotas from './pages/admin/AdminRotas'
 import AdminProdutos from './pages/admin/AdminProdutos'
 import AdminProdutoForm from './pages/admin/AdminProdutoForm'
+import AdminRepresentada from './pages/admin/AdminRepresentada'
+import RepresentadaPedidos from './pages/representada/RepresentadaPedidos'
+import RepresentadaPedidoDetalhe from './pages/representada/RepresentadaPedidoDetalhe'
 import { hasSupabaseEnv, supabaseEnvError } from './lib/supabase'
 
 export default function App() {
@@ -56,6 +61,13 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/trocar-senha" element={<TrocarSenha />} />
 
+            <Route element={<RepresentadaRoute />}>
+              <Route element={<RepresentadaLayout />}>
+                <Route path="/representada" element={<RepresentadaPedidos />} />
+                <Route path="/representada/pedido/:id" element={<RepresentadaPedidoDetalhe />} />
+              </Route>
+            </Route>
+
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/pedidos" element={<Pedidos />} />
@@ -84,6 +96,7 @@ export default function App() {
                 <Route path="/admin/produtos" element={<AdminProdutos />} />
                 <Route path="/admin/produtos/novo" element={<AdminProdutoForm />} />
                 <Route path="/admin/produtos/:id/editar" element={<AdminProdutoForm />} />
+                <Route path="/admin/representada" element={<AdminRepresentada />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

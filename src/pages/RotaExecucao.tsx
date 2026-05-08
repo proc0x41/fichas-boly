@@ -9,6 +9,7 @@ import { LoadingButton } from '../components/LoadingButton'
 import { ArrowLeft, Loader2, MapPin, Check, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { StatusVisita, TipoVisita } from '../types'
+import { dataLocalIso } from '../lib/utils'
 
 interface Parada {
   cliente_id: string
@@ -66,14 +67,18 @@ export default function RotaExecucao() {
           .order('ordem'),
         supabase
           .from('visitas')
-          .select('id, cliente_id, status, tipo_visita')
-          .eq('rota_execucao_id', execucaoId),
+          .select('id, cliente_id, status, tipo_visita, criado_em')
+          .eq('rota_execucao_id', execucaoId)
+          .order('criado_em', { ascending: false }),
       ])
 
       if (cancelled) return
 
+      // Visitas vêm da mais nova para a mais antiga; usamos a primeira por
+      // cliente (ignoramos as anteriores se houver duplicata na execução).
       const visitasPorCliente = new Map<string, { id: string; status: StatusVisita; tipo_visita: TipoVisita }>()
       ;(visitasExec ?? []).forEach((v) => {
+        if (visitasPorCliente.has(v.cliente_id)) return
         visitasPorCliente.set(v.cliente_id, {
           id: v.id,
           status: v.status as StatusVisita,
@@ -124,7 +129,7 @@ export default function RotaExecucao() {
       .insert({
         cliente_id: clienteId,
         vendedor_id: user.id,
-        data_visita: new Date().toISOString().split('T')[0],
+        data_visita: dataLocalIso(),
         status: 'visitado',
         tipo_visita: 'visita',
         rota_execucao_id: execucaoId,

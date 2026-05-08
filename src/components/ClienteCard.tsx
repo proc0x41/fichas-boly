@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Phone, MapPin } from 'lucide-react'
 import { maskTelefone } from '../lib/masks'
+import { formatarDataBr } from '../lib/utils'
 import type { Cliente } from '../types'
 
 interface Props {
@@ -8,7 +9,16 @@ interface Props {
   linkTo?: string
 }
 
+function telefonePrincipal(cliente: Cliente): string | null {
+  const fromContatos = (cliente.contatos ?? [])
+    .filter((c) => c.tipo === 'telefone' && c.valor.trim())
+    .sort((a, b) => a.ordem - b.ordem)[0]?.valor
+  if (fromContatos) return fromContatos
+  return cliente.telefone?.trim() || null
+}
+
 export function ClienteCard({ cliente, linkTo }: Props) {
+  const telefone = telefonePrincipal(cliente)
   const content = (
     <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors active:bg-gray-50">
       <div className="flex items-start justify-between">
@@ -26,15 +36,15 @@ export function ClienteCard({ cliente, linkTo }: Props) {
         )}
       </div>
       <div className="mt-2 flex items-center justify-between">
-        {cliente.telefone && (
+        {telefone && (
           <span className="flex items-center gap-1 text-xs text-gray-500">
             <Phone className="h-3 w-3" />
-            {maskTelefone(cliente.telefone!)}
+            {maskTelefone(telefone)}
           </span>
         )}
         {cliente.ultima_visita && (
           <span className="text-xs text-gray-400">
-            Última visita: {new Date(cliente.ultima_visita).toLocaleDateString('pt-BR')}
+            Última visita: {formatarDataBr(cliente.ultima_visita)}
           </span>
         )}
       </div>

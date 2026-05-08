@@ -87,10 +87,15 @@ Vivem em [supabase/functions/](supabase/functions/) e rodam com `service_role`. 
 
 ### Schema e migrações
 
-[supabase/schema.sql](supabase/schema.sql) é o **DDL completo** para subir um projeto do zero. As migrações incrementais ficam soltas como `migration-*.sql` no diretório `supabase/` e são aplicadas manualmente no SQL Editor do Supabase Dashboard — **não** existe pipeline automatizado (sem `supabase db push`, sem Drizzle/Prisma). Ao adicionar uma feature de banco:
+[supabase/schema.sql](supabase/schema.sql) é o **DDL completo e idempotente** para subir um projeto do zero (consolidado de todas as migrations). As `migration-*.sql` no mesmo diretório são deltas aplicados manualmente no SQL Editor do Supabase Dashboard em projetos existentes — **não** existe pipeline automatizado (sem `supabase db push`, sem Drizzle/Prisma). Ao adicionar uma feature de banco:
 
-1. Atualize `schema.sql` para refletir o estado final.
-2. Crie um `migration-<feature>.sql` idempotente (uso de `IF NOT EXISTS` / `CREATE OR REPLACE`) com o delta para projetos já existentes.
+1. Atualize `schema.sql` para refletir o estado final consolidado.
+2. Crie um `migration-<feature>.sql` idempotente (uso de `IF NOT EXISTS` / `CREATE OR REPLACE` / blocos `DO`) com o delta para projetos já existentes.
+3. Migrations recentes incluem RPCs transacionais (`replace_visita_codigos`, `replace_cliente_contatos`, `replace_rota_clientes`) — ver "Padrão de substituição em massa" abaixo.
+
+### Padrão de substituição em massa (delete + insert)
+
+Para tabelas filhas que sobrescrevem tudo no save (`visita_codigos`, `cliente_contatos`, `rota_clientes`), **nunca** faça `delete()` seguido de `insert()` em duas chamadas separadas — se o insert falhar, os dados originais somem silenciosamente. Use os RPCs `replace_visita_codigos` / `replace_cliente_contatos` / `replace_rota_clientes` que rodam em uma transação. Eles validam ownership internamente (vendedor da entidade pai ou admin).
 
 ### PWA e cache
 
@@ -126,3 +131,5 @@ Headers de segurança e CSP em [vercel.json](vercel.json) — a CSP libera as AP
 - **`must_change_password` é gate global**: qualquer rota protegida que não seja `/trocar-senha` redireciona enquanto a flag for `true`. Não adicione exceções.
 - **Limite de 200 códigos por visita**: trigger `trg_max_codigos` no banco — antes de aumentar, confirme que a UI suporta e que o PDF não estoura página.
 - **Normalização de código**: sempre passe códigos por `normCodigo` ([src/lib/utils.ts](src/lib/utils.ts)) antes de comparar — banco usa `lower(trim(codigo))` no índice único de `produtos`.
+- **Datas em fuso BR**: para gravar a data de hoje, use `dataLocalIso()`; para formatar data string `'YYYY-MM-DD'` para exibição, use `formatarDataBr()`. Ambas em [src/lib/utils.ts](src/lib/utils.ts). `new Date().toISOString().split('T')[0]` é UTC e dá dia errado à noite no Brasil; `new Date('YYYY-MM-DD').toLocaleDateString()` mostra o dia anterior.
+- **Telefone/email de cliente**: prefira sempre `cliente.contatos[]` (de `cliente_contatos`); só caia para `clientes.telefone`/`clientes.email` legados como fallback.

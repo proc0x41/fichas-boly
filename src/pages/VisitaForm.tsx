@@ -4,13 +4,13 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChipInput, type ProdutoPreview } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
-import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2 } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
 import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { baixarPdf, linkEmail, nomeArquivoPedido } from '../lib/sharePedido'
-import { normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
+import { dataLocalIso, normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
 // Status só é mostrado quando tipo_visita = 'visita' (parada sem pedido).
 // Pedido/orçamento são sempre 'visitado' implicitamente.
@@ -30,7 +30,7 @@ export default function VisitaForm() {
   const navigate = useNavigate()
   const { user, perfil } = useAuth()
 
-  const [dataVisita, setDataVisita] = useState(new Date().toISOString().split('T')[0])
+  const [dataVisita, setDataVisita] = useState(dataLocalIso())
   const [tipoVisita, setTipoVisita] = useState<TipoVisita>('pedido')
   const [status, setStatus] = useState<StatusVisita>('visitado')
   const [observacao, setObservacao] = useState('')
@@ -49,20 +49,27 @@ export default function VisitaForm() {
   const [clienteComprador, setClienteComprador] = useState<string | null>(null)
   const [clienteEmail, setClienteEmail] = useState<string | null>(null)
   const [catalogoProdutos, setCatalogoProdutos] = useState<Map<string, ProdutoPreview> | null>(null)
+  const [compartilhadoEm, setCompartilhadoEm] = useState<string | null>(null)
+  const [notaEmitidaEm, setNotaEmitidaEm] = useState<string | null>(null)
+  const [compartilhando, setCompartilhando] = useState(false)
 
   const totais = useMemo(() => {
     const pct = parsePercentInput(descontoPercent)
-    const fatorLiq = 1 - pct / 100
     const frete = parseMoneyInput(valorFrete)
     let totalTabela = 0
     let totalLiquido = 0
     let itensSemPreco = 0
+    let temOverride = false
     for (const it of itens) {
       const prod = catalogoProdutos?.get(normCodigo(it.codigo)) ?? null
       const preco = prod?.preco_tabela ?? 0
       if (!prod) itensSemPreco += 1
+      const override = it.descontoOverride
+      const efetivo = override !== null && override !== undefined ? override : pct
+      if (override !== null && override !== undefined && override !== pct) temOverride = true
+      const fator = 1 - efetivo / 100
       totalTabela += preco * it.quantidade
-      totalLiquido += preco * fatorLiq * it.quantidade
+      totalLiquido += preco * fator * it.quantidade
     }
     const desconto = Math.max(0, totalTabela - totalLiquido)
     return {
@@ -74,6 +81,7 @@ export default function VisitaForm() {
       total: totalLiquido + frete,
       qtdItens: itens.reduce((s, i) => s + i.quantidade, 0),
       itensSemPreco,
+      temOverride,
     }
   }, [itens, descontoPercent, valorFrete, catalogoProdutos])
 
@@ -184,7 +192,7 @@ export default function VisitaForm() {
     ;(async () => {
       const { data } = await supabase
         .from('visitas')
-        .select('*, codigos:visita_codigos(codigo, quantidade)')
+        .select('*, codigos:visita_codigos(codigo, quantidade, desconto_percent_override)')
         .eq('id', visitaId)
         .single()
       if (data) {
@@ -195,6 +203,8 @@ export default function VisitaForm() {
         const vf = (data as { valor_frete?: number }).valor_frete
         const dp = (data as { desconto_percent?: number }).desconto_percent
         const np = (data as { numero_pedido?: number }).numero_pedido
+        setCompartilhadoEm((data as { compartilhado_em?: string | null }).compartilhado_em ?? null)
+        setNotaEmitidaEm((data as { nota_emitida_em?: string | null }).nota_emitida_em ?? null)
         setValorFrete(String(vf ?? 0))
         setDescontoPercent(
           Number(dp ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2, useGrouping: false }),
@@ -202,9 +212,17 @@ export default function VisitaForm() {
         setNumeroPedido(np ?? null)
         setTipoVisita(((data as { tipo_visita?: string }).tipo_visita as TipoVisita) ?? 'pedido')
         setItens(
-          ((data.codigos as { codigo: string; quantidade: number }[]) ?? []).map((c) => ({
+          (
+            (data.codigos as
+              | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+              | undefined) ?? []
+          ).map((c) => ({
             codigo: c.codigo,
             quantidade: c.quantidade,
+            descontoOverride:
+              c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+                ? Number(c.desconto_percent_override)
+                : null,
           })),
         )
       }
@@ -214,17 +232,32 @@ export default function VisitaForm() {
 
   const carregarUltimaVisita = async () => {
     if (!clienteId) return
+    // Ignora visitas simples (tipo='visita') que não têm itens.
     const { data } = await supabase
       .from('visitas')
-      .select('id, codigos:visita_codigos(codigo, quantidade)')
+      .select('id, codigos:visita_codigos(codigo, quantidade, desconto_percent_override)')
       .eq('cliente_id', clienteId)
+      .in('tipo_visita', ['pedido', 'orcamento'])
       .order('data_visita', { ascending: false })
+      .order('criado_em', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    const anteriores = (data?.codigos as { codigo: string; quantidade: number }[] | undefined) ?? []
+    const anteriores =
+      (data?.codigos as
+        | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+        | undefined) ?? []
     if (anteriores.length > 0) {
-      setItens(anteriores.map((c) => ({ codigo: c.codigo, quantidade: c.quantidade })))
+      setItens(
+        anteriores.map((c) => ({
+          codigo: c.codigo,
+          quantidade: c.quantidade,
+          descontoOverride:
+            c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+              ? Number(c.desconto_percent_override)
+              : null,
+        })),
+      )
       toast.success(`${anteriores.length} item(ns) carregado(s) da última visita`)
     } else {
       toast('Nenhuma visita anterior encontrada')
@@ -237,8 +270,10 @@ export default function VisitaForm() {
       .from('visitas')
       .select('condicoes_pagamento')
       .eq('cliente_id', clienteId)
+      .in('tipo_visita', ['pedido', 'orcamento'])
       .not('condicoes_pagamento', 'is', null)
       .order('data_visita', { ascending: false })
+      .order('criado_em', { ascending: false })
       .limit(1)
     if (visitaId) query.neq('id', visitaId)
     const { data } = await query.maybeSingle()
@@ -277,11 +312,20 @@ export default function VisitaForm() {
         toast.error('Erro ao salvar')
         return null
       }
-      await supabase.from('visita_codigos').delete().eq('visita_id', visitaId)
-      if (itens.length > 0) {
-        await supabase.from('visita_codigos').insert(
-          itens.map((i) => ({ visita_id: visitaId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
-        )
+      const { error: codErr } = await supabase.rpc('replace_visita_codigos', {
+        p_visita_id: visitaId,
+        p_codigos: itens.map((i) => ({
+          codigo: i.codigo.trim(),
+          quantidade: i.quantidade,
+          desconto_percent_override:
+            i.descontoOverride !== null && i.descontoOverride !== undefined
+              ? i.descontoOverride
+              : null,
+        })),
+      })
+      if (codErr) {
+        toast.error('Erro ao salvar itens — itens anteriores foram preservados')
+        return null
       }
       return { id: visitaId, numero: numeroPedido }
     }
@@ -314,7 +358,15 @@ export default function VisitaForm() {
     setNumeroPedido(novoNumero)
     if (itens.length > 0) {
       const { error: codErr } = await supabase.from('visita_codigos').insert(
-        itens.map((i) => ({ visita_id: novoId, codigo: i.codigo.trim(), quantidade: i.quantidade })),
+        itens.map((i) => ({
+          visita_id: novoId,
+          codigo: i.codigo.trim(),
+          quantidade: i.quantidade,
+          desconto_percent_override:
+            i.descontoOverride !== null && i.descontoOverride !== undefined
+              ? i.descontoOverride
+              : null,
+        })),
       )
       if (codErr) toast.error('Salvo, mas erro ao salvar itens')
     }
@@ -328,7 +380,7 @@ export default function VisitaForm() {
         `
         *,
         cliente:clientes(*),
-        codigos:visita_codigos(id, codigo, quantidade)
+        codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)
       `,
       )
       .eq('id', id)
@@ -354,7 +406,10 @@ export default function VisitaForm() {
         return a.tipo === 'telefone' ? -1 : 1
       }),
     }
-    const codigos = (row.codigos as { codigo: string; quantidade: number }[]) ?? []
+    const codigos =
+      (row.codigos as
+        | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+        | undefined) ?? []
     const { data: produtosList } = await supabase.from('produtos').select('codigo, descricao, preco_tabela').eq('ativo', true)
     const produtosPorCodigo = new Map<string, ProdutoCatalogo>()
     for (const p of produtosList ?? []) {
@@ -384,6 +439,10 @@ export default function VisitaForm() {
         visita_id: id,
         codigo: c.codigo,
         quantidade: c.quantidade,
+        desconto_percent_override:
+          c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
+            ? Number(c.desconto_percent_override)
+            : null,
       })),
       produtosPorCodigo,
       vendedor: {
@@ -521,6 +580,38 @@ export default function VisitaForm() {
     }
   }
 
+  const toggleCompartilhamento = async () => {
+    if (notaEmitidaEm) {
+      // Bloqueia descompartilhar pedido cuja NF já foi emitida pela Representada.
+      toast.error('NF já foi emitida — não é possível descompartilhar')
+      return
+    }
+    setCompartilhando(true)
+    try {
+      // Garante que o pedido está salvo (gera id no caso de criação).
+      const resultado = await salvarDados()
+      if (!resultado) return
+      const querCompartilhar = !compartilhadoEm
+      const { error } = await supabase
+        .from('visitas')
+        .update({ compartilhado_em: querCompartilhar ? new Date().toISOString() : null })
+        .eq('id', resultado.id)
+      if (error) {
+        toast.error('Erro ao atualizar compartilhamento')
+        return
+      }
+      setCompartilhadoEm(querCompartilhar ? new Date().toISOString() : null)
+      toast.success(
+        querCompartilhar
+          ? 'Pedido compartilhado com a Representada'
+          : 'Compartilhamento removido',
+      )
+      if (!visitaId) navigateParaEdicao(resultado.id)
+    } finally {
+      setCompartilhando(false)
+    }
+  }
+
   const navigateParaEdicao = (id: string) => {
     if (execucaoId && clienteId) {
       navigate(`/rotas/execucao/${execucaoId}/visita/${clienteId}/${id}/editar`, { replace: true })
@@ -614,6 +705,20 @@ export default function VisitaForm() {
               {tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'} nº {numeroPedido}
             </p>
           )}
+          {!isVisitaSimples && tipoVisita === 'pedido' && (compartilhadoEm || notaEmitidaEm) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {compartilhadoEm && !notaEmitidaEm && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                  Compartilhado
+                </span>
+              )}
+              {notaEmitidaEm && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-700">
+                  ✓ NF emitida
+                </span>
+              )}
+            </div>
+          )}
         </div>
         {isEditing && (
           <button
@@ -699,7 +804,13 @@ export default function VisitaForm() {
                 Reaproveitar última
               </button>
             </div>
-            <ChipInput itens={itens} onChange={setItens} onLookupCodigo={lookupCodigo} produtosCatalogo={catalogoProdutos} />
+            <ChipInput
+              itens={itens}
+              onChange={setItens}
+              onLookupCodigo={lookupCodigo}
+              produtosCatalogo={catalogoProdutos}
+              descontoGlobalPercent={totais.pct}
+            />
             <p className="mt-1 text-[11px] text-gray-400">
               Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
             </p>
@@ -785,10 +896,12 @@ export default function VisitaForm() {
                 <dt>Subtotal (tabela)</dt>
                 <dd className="tabular-nums">{fmtBRL(totais.totalTabela)}</dd>
               </div>
-              {totais.pct > 0 && (
+              {totais.desconto > 0 && (
                 <div className="flex justify-between text-red-600">
                   <dt>
-                    Desconto ({totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)
+                    {totais.temOverride
+                      ? 'Desconto (com overrides por item)'
+                      : `Desconto (${totais.pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)`}
                   </dt>
                   <dd className="tabular-nums">- {fmtBRL(totais.desconto)}</dd>
                 </div>
@@ -864,6 +977,37 @@ export default function VisitaForm() {
                 <p className="text-[11px] text-gray-400">
                   Para enviar: cliente precisa ter CNPJ cadastrado e ao menos 1 item.
                 </p>
+              )}
+
+              {tipoVisita === 'pedido' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void toggleCompartilhamento()}
+                    disabled={compartilhando || loading || Boolean(notaEmitidaEm)}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed ${
+                      compartilhadoEm
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        : 'border-blue-500 bg-blue-600 text-white hover:bg-blue-700'
+                    } disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-400`}
+                  >
+                    {compartilhando ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileCheck className="h-4 w-4" />
+                    )}
+                    {compartilhadoEm
+                      ? 'Compartilhado — clique para descompartilhar'
+                      : 'Compartilhar com Representada (NF)'}
+                  </button>
+                  <p className="text-[11px] text-gray-400">
+                    {notaEmitidaEm
+                      ? 'NF já emitida — descompartilhamento bloqueado.'
+                      : compartilhadoEm
+                        ? 'Visível no painel da Representada para emissão de NF.'
+                        : 'Marque para que a Representada veja o pedido no painel dela e emita NF.'}
+                  </p>
+                </>
               )}
             </>
           )}

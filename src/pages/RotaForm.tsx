@@ -214,22 +214,17 @@ export default function RotaForm() {
         return
       }
 
-      const { error: dErr } = await supabase.from('rota_clientes').delete().eq('rota_id', rotaId)
-      if (dErr) {
-        toast.error('Erro ao atualizar paradas')
-        setLoading(false)
-        return
-      }
-
       const paradas = clientesSelecionados.map((c, idx) => ({
-        rota_id: rotaId,
         cliente_id: c.id,
         ordem: idx,
       }))
-      const { error: pErr } = await supabase.from('rota_clientes').insert(paradas)
+      const { error: pErr } = await supabase.rpc('replace_rota_clientes', {
+        p_rota_id: rotaId,
+        p_paradas: paradas,
+      })
       setLoading(false)
       if (pErr) {
-        toast.error('Erro ao salvar paradas')
+        toast.error('Erro ao salvar paradas — paradas anteriores foram preservadas')
       } else {
         toast.success('Rota atualizada')
         navigate(`/rotas/${rotaId}`, { replace: true })

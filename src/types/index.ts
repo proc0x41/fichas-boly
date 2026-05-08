@@ -1,8 +1,10 @@
+export type Role = 'vendedor' | 'admin' | 'representada'
+
 export interface Perfil {
   id: string
   user_id: string
   nome: string
-  role: 'vendedor' | 'admin'
+  role: Role
   must_change_password: boolean
   ativo: boolean
   ciclo_dias: number
@@ -64,7 +66,7 @@ export interface Cliente {
   contatos?: ClienteContato[]
 }
 
-export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado' | 'pedido'
+export type StatusVisita = 'pendente' | 'visitado' | 'nao_encontrado' | 'reagendado'
 /**
  * Tipo do registro de visita:
  * - `pedido`: pedido firme (gera número e PDF)
@@ -91,6 +93,10 @@ export interface Visita {
   desconto_percent?: number
   /** Timestamp do envio do pedido/orçamento para a Representada (WhatsApp). Null = não enviado. */
   enviado_representada_em?: string | null
+  /** Timestamp em que o vendedor compartilhou o pedido com a Representada (visível no painel da Representada). Null = não compartilhado. */
+  compartilhado_em?: string | null
+  /** Timestamp em que a Representada marcou a NF como emitida. Null = ainda não emitida. */
+  nota_emitida_em?: string | null
   criado_em: string
   cliente?: Cliente
   codigos?: VisitaCodigo[]
@@ -101,11 +107,18 @@ export interface VisitaCodigo {
   visita_id: string
   codigo: string
   quantidade: number
+  /**
+   * Desconto % específico desta linha. `null` = herda `visitas.desconto_percent`
+   * (global); `0` = item explicitamente sem desconto.
+   */
+  desconto_percent_override?: number | null
 }
 
 export interface CodigoItem {
   codigo: string
   quantidade: number
+  /** Override do desconto global para esse item (0–100). `null`/undefined = herda. */
+  descontoOverride?: number | null
 }
 
 export interface Rota {
