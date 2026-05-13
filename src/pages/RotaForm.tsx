@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react'
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
@@ -20,6 +20,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { SearchInput } from '../components/SearchInput'
 import { LoadingButton } from '../components/LoadingButton'
+import { UnsavedChangesGuard } from '../components/UnsavedChangesGuard'
+import { useFormDirty } from '../hooks/useFormDirty'
 import { stripAccents } from '../lib/masks'
 import { ArrowLeft, GripVertical, X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -86,6 +88,13 @@ export default function RotaForm() {
   const [searchHasMore, setSearchHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
+
+  // Rastreia "alterações não salvas" — nome + ids dos clientes na ordem.
+  const formValues = useMemo(
+    () => ({ nome, paradas: clientesSelecionados.map((c) => c.id) }),
+    [nome, clientesSelecionados],
+  )
+  const { dirty, dirtyRef, markSaved } = useFormDirty(formValues, { isLoading: loadingData })
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -190,17 +199,18 @@ export default function RotaForm() {
     }
   }
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  /** Valida e persiste. Retorna `{ id }` em sucesso ou null em erro.
+   * Não navega nem mostra toast de sucesso — quem chama decide. */
+  const salvarDados = async (): Promise<{ id: string } | null> => {
     if (!nome.trim()) {
       toast.error('Nome da rota é obrigatório')
-      return
+      return null
     }
     if (clientesSelecionados.length === 0) {
       toast.error('Adicione ao menos um cliente à rota')
-      return
+      return null
     }
-    if (!user) return
+    if (!user) return null
     setLoading(true)
 
     if (isEditing && rotaId) {
@@ -211,7 +221,7 @@ export default function RotaForm() {
       if (uErr) {
         toast.error('Erro ao atualizar rota')
         setLoading(false)
-        return
+        return null
       }
 
       const paradas = clientesSelecionados.map((c, idx) => ({
@@ -225,11 +235,10 @@ export default function RotaForm() {
       setLoading(false)
       if (pErr) {
         toast.error('Erro ao salvar paradas — paradas anteriores foram preservadas')
-      } else {
-        toast.success('Rota atualizada')
-        navigate(`/rotas/${rotaId}`, { replace: true })
+        return null
       }
-      return
+      markSaved()
+      return { id: rotaId }
     }
 
     const { count } = await supabase
@@ -251,7 +260,7 @@ export default function RotaForm() {
     if (error || !rota) {
       toast.error('Erro ao criar rota')
       setLoading(false)
-      return
+      return null
     }
 
     const paradas = clientesSelecionados.map((c, idx) => ({
@@ -264,10 +273,21 @@ export default function RotaForm() {
     setLoading(false)
     if (pErr) {
       toast.error('Rota criada, mas erro ao salvar paradas')
-    } else {
-      toast.success('Rota criada')
+      // Mesmo com erro nas paradas, a rota foi criada — markSaved pra não
+      // disparar o guard ao sair.
+      markSaved()
+      return { id: rota.id as string }
     }
-    navigate(`/rotas/${rota.id}`, { replace: true })
+    markSaved()
+    return { id: rota.id as string }
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    const result = await salvarDados()
+    if (!result) return
+    toast.success(isEditing ? 'Rota atualizada' : 'Rota criada')
+    navigate(`/rotas/${result.id}`, { replace: true })
   }
 
   if (loadingData) {
@@ -280,6 +300,12 @@ export default function RotaForm() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-8">
+      <UnsavedChangesGuard
+        dirty={dirty}
+        dirtyRef={dirtyRef}
+        onSave={async () => (await salvarDados()) !== null}
+      />
+
       <button
         onClick={() => navigate(-1)}
         className="mb-4 flex items-center gap-1 text-sm text-gray-500"

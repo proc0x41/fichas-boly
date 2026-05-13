@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ChipInput, type ProdutoPreview } from '../components/ChipInput'
 import { LoadingButton } from '../components/LoadingButton'
+import { UnsavedChangesGuard } from '../components/UnsavedChangesGuard'
+import { useFormDirty } from '../hooks/useFormDirty'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck, MessageCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
@@ -53,6 +55,24 @@ export default function VisitaForm() {
   const [compartilhadoEm, setCompartilhadoEm] = useState<string | null>(null)
   const [notaEmitidaEm, setNotaEmitidaEm] = useState<string | null>(null)
   const [compartilhando, setCompartilhando] = useState(false)
+
+  // Rastreia "alterações não salvas" — usado pelo UnsavedChangesGuard pra
+  // bloquear navegação acidental. `loadingData` impede capturar snapshot vazio
+  // antes dos dados de edição chegarem.
+  const formValues = useMemo(
+    () => ({
+      dataVisita,
+      tipoVisita,
+      status,
+      observacao,
+      condicoesPagamento,
+      valorFrete,
+      descontoPercent,
+      itens,
+    }),
+    [dataVisita, tipoVisita, status, observacao, condicoesPagamento, valorFrete, descontoPercent, itens],
+  )
+  const { dirty, dirtyRef, markSaved } = useFormDirty(formValues, { isLoading: loadingData })
 
   const totais = useMemo(() => {
     const pct = parsePercentInput(descontoPercent)
@@ -331,6 +351,7 @@ export default function VisitaForm() {
         toast.error('Erro ao salvar itens — itens anteriores foram preservados')
         return null
       }
+      markSaved()
       return { id: visitaId, numero: numeroPedido }
     }
 
@@ -374,6 +395,7 @@ export default function VisitaForm() {
       )
       if (codErr) toast.error('Salvo, mas erro ao salvar itens')
     }
+    markSaved()
     return { id: novoId, numero: novoNumero }
   }
 
@@ -474,15 +496,18 @@ export default function VisitaForm() {
 
   /**
    * Mensagem padrão usada tanto pelo email quanto pelo WhatsApp.
-   * Formato definido pelo time comercial — manter conciso e amigável.
+   * Formato definido literalmente pelo time comercial — não alterar sem
+   * confirmar com eles. `{tipo}` alterna entre "orçamento" e "pedido"
+   * conforme `tipo_visita`.
    */
   const montarMensagemCliente = (numero: number): string => {
     const tipo = tipoVisita === 'orcamento' ? 'orçamento' : 'pedido'
     const nome = clienteComprador?.trim() || clienteNome?.trim() || 'cliente'
-    const numeroFmt = numero > 0 ? ` nº ${numero}` : ''
+    const numeroFmt = numero > 0 ? ` n ${numero}` : ''
     return [
-      `Olá, ${nome}`,
+      `Olá, ${nome}...`,
       `Segue em anexo, ${tipo}${numeroFmt}.`,
+      '',
       `Aguardamos seu breve retorno para darmos continuidade no ${tipo}.`,
     ].join('\n')
   }
@@ -669,6 +694,8 @@ export default function VisitaForm() {
         ? 'Visita excluída'
         : 'Pedido excluído',
     )
+    // Visita já não existe — ignora o guard de "alterações não salvas" ao sair.
+    markSaved()
     navigate(-1)
   }
 
@@ -690,6 +717,11 @@ export default function VisitaForm() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-8">
+      <UnsavedChangesGuard
+        dirty={dirty}
+        dirtyRef={dirtyRef}
+        onSave={async () => (await salvarDados()) !== null}
+      />
       <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
         <ArrowLeft className="h-4 w-4" />
         Voltar
