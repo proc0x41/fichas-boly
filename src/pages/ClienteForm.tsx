@@ -1,8 +1,10 @@
-import { useEffect, useState, useId, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, useId, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { LoadingButton } from '../components/LoadingButton'
+import { UnsavedChangesGuard } from '../components/UnsavedChangesGuard'
+import { useFormDirty } from '../hooks/useFormDirty'
 import { ArrowLeft, Plus, Trash2, Search } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE, unmask, validateCNPJ } from '../lib/masks'
 import { buscarCEP } from '../lib/cep'
@@ -51,6 +53,9 @@ export default function ClienteForm() {
   const [loadingData, setLoadingData] = useState(isEditing)
   const [loadingCep, setLoadingCep] = useState(false)
   const [loadingCnpj, setLoadingCnpj] = useState(false)
+
+  const formValues = useMemo(() => ({ form, contatos }), [form, contatos])
+  const { dirty, dirtyRef, markSaved } = useFormDirty(formValues, { isLoading: loadingData })
 
   useEffect(() => {
     if (isEditing && id) {
@@ -193,32 +198,32 @@ export default function ClienteForm() {
 
   const total = form.display_chao + form.display_balcao + form.display_parede
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  /** Valida, persiste e retorna o id do cliente em sucesso, ou null em erro.
+   * Não navega nem mostra toast de sucesso — quem chama decide. */
+  const salvarDados = async (): Promise<string | null> => {
     if (!form.fantasia.trim()) {
       toast.error('Nome fantasia é obrigatório')
-      return
+      return null
     }
 
     const cnpjRaw = unmask(form.cnpj)
     if (cnpjRaw && !validateCNPJ(cnpjRaw)) {
       toast.error('CNPJ inválido — verifique os dígitos')
-      return
+      return null
     }
 
     const cepRaw = unmask(form.cep)
     if (cepRaw && cepRaw.length !== 8) {
       toast.error('CEP deve ter 8 dígitos')
-      return
+      return null
     }
 
-    // Valida telefones
     for (const c of contatos) {
       if (c.tipo === 'telefone' && c.valor) {
         const raw = unmask(c.valor)
         if (raw.length < 10) {
           toast.error('Telefone deve ter 10 ou 11 dígitos')
-          return
+          return null
         }
       }
     }
@@ -264,7 +269,7 @@ export default function ClienteForm() {
     if (error) {
       setLoading(false)
       toast.error('Erro ao salvar cliente')
-      return
+      return null
     }
 
     // Salva contatos: na edição usa RPC transacional (delete+insert atômico
@@ -287,7 +292,7 @@ export default function ClienteForm() {
       if (errContatos) {
         setLoading(false)
         toast.error('Cliente salvo, mas erro ao salvar contatos — os contatos anteriores foram preservados')
-        return
+        return null
       }
     } else if (contatosValidos.length > 0) {
       const { error: errContatos } = await supabase
@@ -296,11 +301,19 @@ export default function ClienteForm() {
       if (errContatos) {
         setLoading(false)
         toast.error('Cliente salvo, mas erro ao salvar contatos')
-        return
+        return null
       }
     }
 
     setLoading(false)
+    markSaved()
+    return clienteId ?? null
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    const clienteId = await salvarDados()
+    if (clienteId === null) return
     toast.success(isEditing ? 'Cliente atualizado' : 'Cliente cadastrado')
     navigate(isEditing ? `/clientes/${clienteId}` : '/clientes', { replace: true })
   }
@@ -315,6 +328,12 @@ export default function ClienteForm() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-8">
+      <UnsavedChangesGuard
+        dirty={dirty}
+        dirtyRef={dirtyRef}
+        onSave={async () => (await salvarDados()) !== null}
+      />
+
       <button onClick={() => navigate(-1)} className="mb-4 flex items-center gap-1 text-sm text-gray-500">
         <ArrowLeft className="h-4 w-4" />
         Voltar

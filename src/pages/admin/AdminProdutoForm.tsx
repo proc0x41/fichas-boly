@@ -1,7 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { LoadingButton } from '../../components/LoadingButton'
+import { UnsavedChangesGuard } from '../../components/UnsavedChangesGuard'
+import { useFormDirty } from '../../hooks/useFormDirty'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { fixUtf8MojibakeIfNeeded } from '../../lib/fixUtf8Mojibake'
@@ -18,6 +20,12 @@ export default function AdminProdutoForm() {
   const [descricao, setDescricao] = useState('')
   const [preco, setPreco] = useState('')
   const [ativo, setAtivo] = useState(true)
+
+  const formValues = useMemo(
+    () => ({ codigo, descricao, preco, ativo }),
+    [codigo, descricao, preco, ativo],
+  )
+  const { dirty, dirtyRef, markSaved } = useFormDirty(formValues, { isLoading: loadingData })
 
   useEffect(() => {
     if (!isEditing || !id) return
@@ -40,16 +48,17 @@ export default function AdminProdutoForm() {
       })
   }, [id, isEditing, navigate])
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  /** Valida e persiste o produto. Retorna `true` em sucesso, `false` em erro.
+   * Não navega nem mostra toast de sucesso — quem chama decide. */
+  const salvarDados = async (): Promise<boolean> => {
     if (!descricao.trim()) {
       toast.error('Descrição obrigatória')
-      return
+      return false
     }
     const pr = parsePreco(preco)
     if (pr === null) {
       toast.error('Preço inválido')
-      return
+      return false
     }
     setSaving(true)
     const descNorm = fixUtf8MojibakeIfNeeded(descricao.trim())
@@ -62,15 +71,14 @@ export default function AdminProdutoForm() {
       setSaving(false)
       if (error) {
         toast.error(error.message || 'Erro ao atualizar produto')
-        return
+        return false
       }
-      toast.success('Produto atualizado')
     } else {
       const c = normCodigo(codigo)
       if (!c) {
         toast.error('Código obrigatório')
         setSaving(false)
-        return
+        return false
       }
       const { error } = await supabase.from('produtos').insert({
         codigo: c,
@@ -82,10 +90,17 @@ export default function AdminProdutoForm() {
       if (error) {
         if (error.code === '23505') toast.error('Código já cadastrado')
         else toast.error('Erro ao salvar')
-        return
+        return false
       }
-      toast.success('Produto cadastrado')
     }
+    markSaved()
+    return true
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!(await salvarDados())) return
+    toast.success(isEditing ? 'Produto atualizado' : 'Produto cadastrado')
     navigate('/admin/produtos')
   }
 
@@ -99,6 +114,8 @@ export default function AdminProdutoForm() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-8">
+      <UnsavedChangesGuard dirty={dirty} dirtyRef={dirtyRef} onSave={salvarDados} />
+
       <button
         onClick={() => navigate('/admin/produtos')}
         className="mb-4 flex items-center gap-1 text-sm text-gray-500"
