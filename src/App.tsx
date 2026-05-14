@@ -1,4 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import {
+  createBrowserRouter,
+  RouterProvider,
+  createRoutesFromElements,
+  Route,
+  Navigate,
+  Outlet,
+} from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -31,6 +38,83 @@ import RepresentadaPedidos from './pages/representada/RepresentadaPedidos'
 import RepresentadaPedidoDetalhe from './pages/representada/RepresentadaPedidoDetalhe'
 import { hasSupabaseEnv, supabaseEnvError } from './lib/supabase'
 
+/**
+ * Layout raiz montado dentro do router. Hospeda os providers globais e os
+ * elementos de UI ambientes (toasts, prompts de PWA). Precisa estar DENTRO do
+ * RouterProvider para que `AuthProvider` e outros possam usar hooks de
+ * navegação (e para que useBlocker do UnsavedChangesGuard funcione em todas
+ * as rotas — ele exige um "data router", senão lança em runtime).
+ */
+function RootLayout() {
+  return (
+    <AuthProvider>
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          duration: 3000,
+          style: { fontSize: '14px' },
+        }}
+      />
+      <InstallPrompt />
+      <UpdatePrompt />
+      <Outlet />
+    </AuthProvider>
+  )
+}
+
+const router = createBrowserRouter(
+  createRoutesFromElements(
+    <Route element={<RootLayout />}>
+      <Route path="/login" element={<Login />} />
+
+      <Route element={<ProtectedRoute />}>
+        <Route path="/trocar-senha" element={<TrocarSenha />} />
+
+        <Route element={<RepresentadaRoute />}>
+          <Route element={<RepresentadaLayout />}>
+            <Route path="/representada" element={<RepresentadaPedidos />} />
+            <Route path="/representada/pedido/:id" element={<RepresentadaPedidoDetalhe />} />
+          </Route>
+        </Route>
+
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/pedidos" element={<Pedidos />} />
+          <Route path="/clientes" element={<Clientes />} />
+          <Route path="/clientes/novo" element={<ClienteForm />} />
+          <Route path="/clientes/:id" element={<ClienteDetalhe />} />
+          <Route path="/clientes/:id/editar" element={<ClienteForm />} />
+          <Route path="/clientes/:clienteId/visita/nova" element={<VisitaForm />} />
+          <Route path="/clientes/:clienteId/visita/:visitaId/editar" element={<VisitaForm />} />
+          <Route path="/rotas" element={<RotasList />} />
+          <Route path="/rotas/nova" element={<RotaForm />} />
+          <Route path="/rotas/:id" element={<RotaDetalhe />} />
+          <Route path="/rotas/:id/editar" element={<RotaForm />} />
+          <Route path="/rotas/execucao/:execucaoId" element={<RotaExecucao />} />
+          <Route path="/rotas/execucao/:execucaoId/visita/:clienteId" element={<VisitaForm />} />
+          <Route
+            path="/rotas/execucao/:execucaoId/visita/:clienteId/:visitaId/editar"
+            element={<VisitaForm />}
+          />
+
+          <Route element={<AdminRoute />}>
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/vendedores" element={<AdminVendedores />} />
+            <Route path="/admin/clientes" element={<AdminClientes />} />
+            <Route path="/admin/rotas" element={<AdminRotas />} />
+            <Route path="/admin/produtos" element={<AdminProdutos />} />
+            <Route path="/admin/produtos/novo" element={<AdminProdutoForm />} />
+            <Route path="/admin/produtos/:id/editar" element={<AdminProdutoForm />} />
+            <Route path="/admin/representada" element={<AdminRepresentada />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Route>
+    </Route>,
+  ),
+)
+
 export default function App() {
   if (!hasSupabaseEnv) {
     return (
@@ -43,67 +127,5 @@ export default function App() {
     )
   }
 
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Toaster
-          position="top-center"
-          toastOptions={{
-            duration: 3000,
-            style: { fontSize: '14px' },
-          }}
-        />
-        <InstallPrompt />
-        <UpdatePrompt />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-
-          <Route element={<ProtectedRoute />}>
-            <Route path="/trocar-senha" element={<TrocarSenha />} />
-
-            <Route element={<RepresentadaRoute />}>
-              <Route element={<RepresentadaLayout />}>
-                <Route path="/representada" element={<RepresentadaPedidos />} />
-                <Route path="/representada/pedido/:id" element={<RepresentadaPedidoDetalhe />} />
-              </Route>
-            </Route>
-
-            <Route element={<Layout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/pedidos" element={<Pedidos />} />
-              <Route path="/clientes" element={<Clientes />} />
-              <Route path="/clientes/novo" element={<ClienteForm />} />
-              <Route path="/clientes/:id" element={<ClienteDetalhe />} />
-              <Route path="/clientes/:id/editar" element={<ClienteForm />} />
-              <Route path="/clientes/:clienteId/visita/nova" element={<VisitaForm />} />
-              <Route path="/clientes/:clienteId/visita/:visitaId/editar" element={<VisitaForm />} />
-              <Route path="/rotas" element={<RotasList />} />
-              <Route path="/rotas/nova" element={<RotaForm />} />
-              <Route path="/rotas/:id" element={<RotaDetalhe />} />
-              <Route path="/rotas/:id/editar" element={<RotaForm />} />
-              <Route path="/rotas/execucao/:execucaoId" element={<RotaExecucao />} />
-              <Route path="/rotas/execucao/:execucaoId/visita/:clienteId" element={<VisitaForm />} />
-              <Route
-                path="/rotas/execucao/:execucaoId/visita/:clienteId/:visitaId/editar"
-                element={<VisitaForm />}
-              />
-
-              <Route element={<AdminRoute />}>
-                <Route path="/admin" element={<AdminDashboard />} />
-                <Route path="/admin/vendedores" element={<AdminVendedores />} />
-                <Route path="/admin/clientes" element={<AdminClientes />} />
-                <Route path="/admin/rotas" element={<AdminRotas />} />
-                <Route path="/admin/produtos" element={<AdminProdutos />} />
-                <Route path="/admin/produtos/novo" element={<AdminProdutoForm />} />
-                <Route path="/admin/produtos/:id/editar" element={<AdminProdutoForm />} />
-                <Route path="/admin/representada" element={<AdminRepresentada />} />
-              </Route>
-
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Route>
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
-  )
+  return <RouterProvider router={router} />
 }
