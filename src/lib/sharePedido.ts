@@ -68,3 +68,50 @@ export function linkWhatsApp(telefone: string | null | undefined, texto: string)
   if (!num) return null
   return `https://wa.me/${num}?text=${encodeURIComponent(texto)}`
 }
+
+interface ShareDataComArquivos extends ShareData {
+  files?: File[]
+}
+
+interface NavigatorShareWithFiles {
+  canShare?: (data: ShareDataComArquivos) => boolean
+  share?: (data: ShareDataComArquivos) => Promise<void>
+}
+
+/**
+ * Navegadores (tipicamente PWAs/mobile) que suportam a Web Share API com arquivos
+ * permitem enviar o PDF direto para e-mail/WhatsApp sem precisar baixar antes.
+ */
+export function podeCompartilharArquivo(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const nav = navigator as unknown as NavigatorShareWithFiles
+  return typeof nav.canShare === 'function' && typeof nav.share === 'function'
+}
+
+/**
+ * Compartilha o PDF gerado pela Web Share API, já com o arquivo anexado.
+ * Resolve o fluxo "enviar PDF sem baixar antes". Em navegadores sem suporte,
+ * retorna false para que o chamador use o fallback (download + mailto:).
+ */
+export async function compartilharPdfArquivo(
+  blob: Blob,
+  nomeArquivo: string,
+  opcoes: { titulo?: string; texto?: string } = {},
+): Promise<boolean> {
+  if (!podeCompartilharArquivo()) return false
+  const nav = navigator as unknown as NavigatorShareWithFiles
+  const file = new File([blob], nomeArquivo, { type: 'application/pdf' })
+  const data: ShareDataComArquivos = {
+    title: opcoes.titulo,
+    text: opcoes.texto,
+    files: [file],
+  }
+  try {
+    if (!nav.canShare!(data)) return false
+    await nav.share!(data)
+    return true
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return true
+    return false
+  }
+}

@@ -118,7 +118,27 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   doc.setTextColor(20, 24, 31)
   const tipoLabel = input.tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'
   doc.text('Boly Encartelados', MARGIN, y + 4)
-  doc.text(`${tipoLabel} nº ${input.numeroPedido}`, pageW - MARGIN, y + 4, { align: 'right' })
+  const nomeClienteCab = input.cliente.fantasia?.trim() || input.cliente.razao_social?.trim() || ''
+  const tituloCab = nomeClienteCab
+    ? `${tipoLabel} nº ${input.numeroPedido} · ${nomeClienteCab}`
+    : `${tipoLabel} nº ${input.numeroPedido}`
+  const cabMaxW = pageW - MARGIN * 2 - 4
+  let cabSize = 11
+  while (cabSize > 7.5 && doc.getTextWidth(tituloCab) > cabMaxW) {
+    cabSize -= 0.5
+    doc.setFontSize(cabSize)
+  }
+  let tituloFinal = tituloCab
+  if (doc.getTextWidth(tituloFinal) > cabMaxW) {
+    const baseCab = `${tipoLabel} nº ${input.numeroPedido} · `
+    let nomeCorte = nomeClienteCab
+    while (nomeCorte.length > 1 && doc.getTextWidth(baseCab + nomeCorte + '…') > cabMaxW) {
+      nomeCorte = nomeCorte.slice(0, -1)
+    }
+    tituloFinal = baseCab + nomeCorte + (nomeCorte.length < nomeClienteCab.length ? '…' : '')
+  }
+  doc.text(tituloFinal, pageW - MARGIN, y + 4, { align: 'right' })
+  doc.setFontSize(11)
   y += 6
   doc.setDrawColor(COL_GRID[0], COL_GRID[1], COL_GRID[2])
   doc.setLineWidth(0.35)

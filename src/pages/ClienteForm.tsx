@@ -403,7 +403,8 @@ export default function ClienteForm() {
             value={form.inscricao_estadual}
             onChange={(v) => set('inscricao_estadual', maskIE(v))}
             inputMode="numeric"
-            maxLength={14}
+            placeholder="000.000.000.000"
+            maxLength={15}
           />
         </div>
 

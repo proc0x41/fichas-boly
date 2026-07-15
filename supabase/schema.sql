@@ -154,12 +154,12 @@ CREATE TABLE IF NOT EXISTS visita_codigos (
 
 CREATE INDEX IF NOT EXISTS idx_visita_codigos_visita ON visita_codigos(visita_id);
 
--- Trigger: limita 200 códigos por visita
+-- Trigger: limita 1000 códigos por visita
 CREATE OR REPLACE FUNCTION check_max_codigos_per_visita()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF (SELECT COUNT(*) FROM visita_codigos WHERE visita_id = NEW.visita_id) >= 200 THEN
-    RAISE EXCEPTION 'Limite de 200 códigos por visita atingido';
+  IF (SELECT COUNT(*) FROM visita_codigos WHERE visita_id = NEW.visita_id) >= 1000 THEN
+    RAISE EXCEPTION 'Limite de 1000 códigos por visita atingido';
   END IF;
   RETURN NEW;
 END;

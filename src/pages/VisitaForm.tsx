@@ -9,9 +9,10 @@ import { useFormDirty } from '../hooks/useFormDirty'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck, MessageCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
-import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
+import { linkRepresentadaEmail, mensagemPedidoRepresentada, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
-import { baixarPdf, linkEmail, linkWhatsApp, nomeArquivoPedido, telefoneParaWaMe } from '../lib/sharePedido'
+import { REPRESENTADA_EMAIL } from '../lib/pedidoPdfConfig'
+import { baixarPdf, compartilharPdfArquivo, linkEmail, linkWhatsApp, nomeArquivoPedido, telefoneParaWaMe } from '../lib/sharePedido'
 import { dataLocalIso, normCodigo, parseMoneyInput, parsePercentInput } from '../lib/utils'
 
 // Status só é mostrado quando tipo_visita = 'visita' (parada sem pedido).
@@ -524,17 +525,25 @@ export default function VisitaForm() {
       const blob = await montarPdfBlob(resultado.id)
       if (!blob) return
       const np = resultado.numero ?? 0
-      baixarPdf(blob, nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita))
+      const nomeArq = nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita)
       const tipoLabel = tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'
       const numeroPart = np ? ` nº ${np}` : ''
-      const subject = `${tipoLabel}${numeroPart} - Boly Encartelados`
-      const link = linkEmail({
-        to: clienteEmail,
-        subject,
-        body: montarMensagemCliente(np),
-      })
-      window.open(link, '_blank', 'noopener')
-      toast.success('PDF baixado — email aberto; anexe o arquivo antes de enviar.')
+      const titulo = `${tipoLabel}${numeroPart} - Boly Encartelados`
+      const texto = `${montarMensagemCliente(np)}\n\nEnvie para: ${clienteEmail}`
+      const compartilhado = await compartilharPdfArquivo(blob, nomeArq, { titulo, texto })
+      if (compartilhado) {
+        toast.success('PDF enviado ao cliente')
+      } else {
+        baixarPdf(blob, nomeArq)
+        const subject = `${tipoLabel}${numeroPart} - Boly Encartelados`
+        const link = linkEmail({
+          to: clienteEmail,
+          subject,
+          body: montarMensagemCliente(np),
+        })
+        window.open(link, '_blank', 'noopener')
+        toast.success('PDF baixado — email aberto; anexe o arquivo antes de enviar.')
+      }
       if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
       setExportando(false)
@@ -585,12 +594,20 @@ export default function VisitaForm() {
     }
     setExportando(true)
     try {
-      // Garante que a visita esteja salva (gera id) antes de carimbar e abrir o email.
+      // Garante que a visita esteja salva (gera id) antes de carimbar e compartilhar.
       const resultado = await salvarDados()
       if (!resultado) return
       const blob = await montarPdfBlob(resultado.id)
       if (!blob) return
       const np = resultado.numero ?? 0
+      const nomeArq = nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita)
+      const tipoLabel = tipoVisita === 'orcamento' ? 'Orçamento' : 'Pedido'
+      const numeroPart = np ? ` nº ${np}` : ''
+      const clientePart = clienteNome.trim() ? ` - ${clienteNome.trim()}` : ''
+      const titulo = `${tipoLabel}${numeroPart}${clientePart}`
+      // Texto com o e-mail salvo da Representada para o destinatário ficar visível.
+      const texto = `${mensagemPedidoRepresentada(pedido)}\n\nEnvie este PDF para: ${REPRESENTADA_EMAIL}`
+      const compartilhado = await compartilharPdfArquivo(blob, nomeArq, { titulo, texto })
       const { error } = await supabase
         .from('visitas')
         .update({ enviado_representada_em: new Date().toISOString() })
@@ -599,17 +616,22 @@ export default function VisitaForm() {
         toast.error('Erro ao registrar envio')
         return
       }
-      baixarPdf(blob, nomeArquivoPedido(np || resultado.id.slice(0, 8), tipoVisita))
-      window.open(
-        linkRepresentadaEmail(pedido, {
-          fantasiaCliente: clienteNome,
-          numeroPedido: np || null,
-          tipoVisita,
-        }),
-        '_blank',
-        'noopener',
-      )
-      toast.success('PDF baixado — email da Representada aberto; anexe o arquivo antes de enviar.')
+      if (compartilhado) {
+        toast.success('PDF enviado para a Representada (pedidoboly@gmail.com)')
+      } else {
+        // Fallback: baixa o PDF e abre o email para anexar manualmente.
+        baixarPdf(blob, nomeArq)
+        window.open(
+          linkRepresentadaEmail(pedido, {
+            fantasiaCliente: clienteNome,
+            numeroPedido: np || null,
+            tipoVisita,
+          }),
+          '_blank',
+          'noopener',
+        )
+        toast.success('PDF baixado — email da Representada aberto; anexe o arquivo antes de enviar.')
+      }
       if (!visitaId) navigateParaEdicao(resultado.id)
     } finally {
       setExportando(false)

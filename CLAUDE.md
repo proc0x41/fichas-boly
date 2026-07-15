@@ -129,7 +129,7 @@ Headers de segurança e CSP em [vercel.json](vercel.json) — a CSP libera as AP
 
 - **Mensagens de login genéricas**: `signIn` retorna sempre "E-mail ou senha inválidos" — não diferencie usuário inexistente vs senha errada (anti-enumeração).
 - **`must_change_password` é gate global**: qualquer rota protegida que não seja `/trocar-senha` redireciona enquanto a flag for `true`. Não adicione exceções.
-- **Limite de 200 códigos por visita**: trigger `trg_max_codigos` no banco — antes de aumentar, confirme que a UI suporta e que o PDF não estoura página.
+- **Limite de 1000 códigos por visita**: trigger `trg_max_codigos` no banco (era 200, aumentado porque clientes registram orçamentos/pedidos com mais de 200 itens; a UI suporta até 400 e o PDF pagina com `showHead: 'everyPage'`) — antes de aumentar novamente, confirme que a UI e o PDF continuam adequados.
 - **Normalização de código**: sempre passe códigos por `normCodigo` ([src/lib/utils.ts](src/lib/utils.ts)) antes de comparar — banco usa `lower(trim(codigo))` no índice único de `produtos`.
 - **Datas em fuso BR**: para gravar a data de hoje, use `dataLocalIso()`; para formatar data string `'YYYY-MM-DD'` para exibição, use `formatarDataBr()`. Ambas em [src/lib/utils.ts](src/lib/utils.ts). `new Date().toISOString().split('T')[0]` é UTC e dá dia errado à noite no Brasil; `new Date('YYYY-MM-DD').toLocaleDateString()` mostra o dia anterior.
 - **Telefone/email de cliente**: prefira sempre `cliente.contatos[]` (de `cliente_contatos`); só caia para `clientes.telefone`/`clientes.email` legados como fallback.
