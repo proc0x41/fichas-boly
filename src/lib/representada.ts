@@ -50,7 +50,7 @@ export function mensagemPedidoRepresentada(pedido: PedidoRepresentada): string {
 }
 
 /**
- * Constrói o link `mailto:` para enviar o pedido à Representada (pedidoboly@gmail.com).
+ * Constrói o link `mailto:` para enviar o pedido à Representada (atendimento@boly.com.br).
  * O corpo usa `mensagemPedidoRepresentada`.
  */
 export function linkRepresentadaEmail(

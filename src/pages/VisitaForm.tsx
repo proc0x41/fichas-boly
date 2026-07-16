@@ -9,7 +9,7 @@ import { useFormDirty } from '../hooks/useFormDirty'
 import { ArrowLeft, RotateCcw, Send, Trash2, Loader2, FileDown, Share2, FileCheck, MessageCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { Cliente, ClienteContato, CodigoItem, StatusVisita, TipoVisita } from '../types'
-import { linkRepresentadaEmail, mensagemPedidoRepresentada, podeEnviarRepresentada } from '../lib/representada'
+import { linkRepresentadaEmail, podeEnviarRepresentada } from '../lib/representada'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../lib/pedidoPdf'
 import { REPRESENTADA_EMAIL } from '../lib/pedidoPdfConfig'
 import { baixarPdf, compartilharPdfArquivo, linkEmail, linkWhatsApp, nomeArquivoPedido, telefoneParaWaMe } from '../lib/sharePedido'
@@ -605,8 +605,9 @@ export default function VisitaForm() {
       const numeroPart = np ? ` nº ${np}` : ''
       const clientePart = clienteNome.trim() ? ` - ${clienteNome.trim()}` : ''
       const titulo = `${tipoLabel}${numeroPart}${clientePart}`
-      // Texto com o e-mail salvo da Representada para o destinatário ficar visível.
-      const texto = `${mensagemPedidoRepresentada(pedido)}\n\nEnvie este PDF para: ${REPRESENTADA_EMAIL}`
+      // Corpo simples: o PDF já vai anexado com todos os dados.
+      const tipoTxt = tipoVisita === 'orcamento' ? 'orçamento' : 'pedido'
+      const texto = `Segue o ${tipoTxt}${numeroPart}${clientePart}.`
       const compartilhado = await compartilharPdfArquivo(blob, nomeArq, { titulo, texto })
       const { error } = await supabase
         .from('visitas')
@@ -617,7 +618,7 @@ export default function VisitaForm() {
         return
       }
       if (compartilhado) {
-        toast.success('PDF enviado para a Representada (pedidoboly@gmail.com)')
+        toast.success(`PDF enviado para a Representada (${REPRESENTADA_EMAIL})`)
       } else {
         // Fallback: baixa o PDF e abre o email para anexar manualmente.
         baixarPdf(blob, nomeArq)
