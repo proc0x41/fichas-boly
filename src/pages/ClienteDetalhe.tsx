@@ -7,7 +7,7 @@ import { PaginationBar } from '../components/PaginationBar'
 import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2, Package } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE } from '../lib/masks'
-import { formatarDataBr, normCodigo } from '../lib/utils'
+import { formatarDataBr, normCodigo, compararCodigos } from '../lib/utils'
 import type { Cliente, ClienteContato, Visita, VisitaCodigo, StatusVisita, TipoVisita } from '../types'
 
 type VisitaComCodigos = Visita & { codigos: VisitaCodigo[] }
@@ -413,7 +413,7 @@ export default function ClienteDetalhe() {
               {v.observacao && <p className="mb-2 text-xs text-gray-500">{v.observacao}</p>}
               {v.codigos && v.codigos.length > 0 && (
                 <div className="flex flex-wrap gap-1">
-                  {v.codigos.map((c) => (
+                  {[...v.codigos].sort((a, b) => compararCodigos(a.codigo, b.codigo)).map((c) => (
                     <span
                       key={c.id}
                       className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"

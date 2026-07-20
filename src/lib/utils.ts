@@ -2,6 +2,22 @@
 export function normCodigo(c: string): string {
   return c.trim().toLowerCase()
 }
+/**
+ * Compara dois códigos de produto para ordenação crescente.
+ *
+ * Usa `localeCompare` com `numeric: true` para ordenação natural (ex.: "2"
+ * antes de "10") e `sensitivity: 'base'` para ignorar caixa/acentuação —
+ * espelha o índice único do banco (`lower(trim(codigo))` em `produtos`).
+ *
+ * Usado para apresentar os códigos de um pedido/orçamento em ordem crescente.
+ */
+export function compararCodigos(a: string, b: string): number {
+  return a.trim().toLowerCase().localeCompare(b.trim().toLowerCase(), 'pt-BR', {
+    numeric: true,
+    sensitivity: 'base',
+  })
+}
+
 
 /** Formata CNPJ com pontuação. */
 export function formatCNPJ(raw: string | null): string | null {

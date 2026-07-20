@@ -9,7 +9,7 @@ import {
   REPRESENTADA_TELEFONE,
 } from './pedidoPdfConfig'
 import { fixUtf8MojibakeIfNeeded } from './fixUtf8Mojibake'
-import { normCodigo, formatCNPJ } from './utils'
+import { normCodigo, formatCNPJ, compararCodigos } from './utils'
 
 export interface ProdutoCatalogo {
   codigo: string
@@ -216,7 +216,8 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   let totalTabela = 0
   let totalLiquido = 0
   let temOverride = false
-  input.codigos.forEach((vc, idx) => {
+  const codigosOrdenados = [...input.codigos].sort((a, b) => compararCodigos(a.codigo, b.codigo))
+  codigosOrdenados.forEach((vc, idx) => {
     const p = input.produtosPorCodigo.get(normCodigo(vc.codigo))
     const preco = p?.preco_tabela ?? 0
     const subTabela = preco * vc.quantidade

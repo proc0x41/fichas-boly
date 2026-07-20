@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { LoadingButton } from '../../components/LoadingButton'
 import { ArrowLeft, Loader2, CheckCircle2, RotateCcw, Phone, Mail, User, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { formatarDataBr, normCodigo, formatCNPJ } from '../../lib/utils'
+import { formatarDataBr, normCodigo, formatCNPJ, compararCodigos } from '../../lib/utils'
 import { maskCEP, maskTelefone } from '../../lib/masks'
 import { buildPedidoPdfBlob, type ProdutoCatalogo } from '../../lib/pedidoPdf'
 import { baixarPdf, nomeArquivoPedido } from '../../lib/sharePedido'
@@ -142,7 +142,7 @@ export default function RepresentadaPedidoDetalhe() {
       let subtotal = 0
       let totalLiquido = 0
       let temOverride = false
-      const itens: ItemRow[] = codigos.map((c) => {
+      const itens: ItemRow[] = codigos.slice().sort((a, b) => compararCodigos(a.codigo, b.codigo)).map((c) => {
         const prod = produtosPorCodigo.get(normCodigo(c.codigo))
         const preco = prod?.preco_tabela ?? 0
         const override = c.desconto_percent_override
