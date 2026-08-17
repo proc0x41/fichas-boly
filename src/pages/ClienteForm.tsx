@@ -4,13 +4,14 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { LoadingButton } from '../components/LoadingButton'
 import { UnsavedChangesGuard } from '../components/UnsavedChangesGuard'
+import { EstoqueInput } from '../components/EstoqueInput'
 import { useFormDirty } from '../hooks/useFormDirty'
 import { ArrowLeft, Plus, Trash2, Search } from 'lucide-react'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE, unmask, validateCNPJ } from '../lib/masks'
 import { buscarCEP } from '../lib/cep'
 import { buscarCNPJ } from '../lib/cnpj'
 import toast from 'react-hot-toast'
-import type { ClienteContato } from '../types'
+import type { ClienteContato, CodigoItem } from '../types'
 
 interface ContatoRascunho {
   id?: string          // existe se veio do banco
@@ -49,12 +50,13 @@ export default function ClienteForm() {
   const { user } = useAuth()
   const [form, setForm] = useState(emptyForm)
   const [contatos, setContatos] = useState<ContatoRascunho[]>([emptyContato()])
+  const [estoque, setEstoque] = useState<CodigoItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingData, setLoadingData] = useState(isEditing)
   const [loadingCep, setLoadingCep] = useState(false)
   const [loadingCnpj, setLoadingCnpj] = useState(false)
 
-  const formValues = useMemo(() => ({ form, contatos }), [form, contatos])
+  const formValues = useMemo(() => ({ form, contatos, estoque }), [form, contatos, estoque])
   const { dirty, dirtyRef, markSaved } = useFormDirty(formValues, { isLoading: loadingData })
 
   useEffect(() => {
@@ -66,7 +68,11 @@ export default function ClienteForm() {
           .select('*')
           .eq('cliente_id', id)
           .order('ordem'),
-      ]).then(([{ data }, { data: contatosData }]) => {
+        supabase
+          .from('cliente_estoque')
+          .select('*')
+          .eq('cliente_id', id),
+      ]).then(([{ data }, { data: contatosData }, { data: estoqueData }]) => {
         if (data) {
           setForm({
             fantasia: data.fantasia ?? '',
@@ -100,6 +106,14 @@ export default function ClienteForm() {
               tipo: c.tipo,
               valor: c.tipo === 'telefone' ? maskTelefone(c.valor) : c.valor,
               rotulo: c.rotulo ?? '',
+            })),
+          )
+        }
+        if (estoqueData && estoqueData.length > 0) {
+          setEstoque(
+            (estoqueData as Array<{ codigo: string; quantidade: number }>).map((e) => ({
+              codigo: e.codigo,
+              quantidade: e.quantidade,
             })),
           )
         }
@@ -301,6 +315,32 @@ export default function ClienteForm() {
       if (errContatos) {
         setLoading(false)
         toast.error('Cliente salvo, mas erro ao salvar contatos')
+        return null
+      }
+    }
+
+    const estoqueValido = estoque.map((e) => ({
+      codigo: e.codigo,
+      quantidade: e.quantidade,
+    }))
+
+    if (isEditing) {
+      const { error: errEstoque } = await supabase.rpc('replace_cliente_estoque', {
+        p_cliente_id: clienteId!,
+        p_itens: estoqueValido,
+      })
+      if (errEstoque) {
+        setLoading(false)
+        toast.error('Cliente salvo, mas erro ao salvar estoque — o estoque anterior foi preservado')
+        return null
+      }
+    } else if (estoqueValido.length > 0) {
+      const { error: errEstoque } = await supabase
+        .from('cliente_estoque')
+        .insert(estoqueValido.map((e) => ({ ...e, cliente_id: clienteId! })))
+      if (errEstoque) {
+        setLoading(false)
+        toast.error('Cliente salvo, mas erro ao salvar estoque')
         return null
       }
     }
@@ -551,6 +591,11 @@ export default function ClienteForm() {
             <NumField label="Parede" value={form.display_parede} onChange={(v) => set('display_parede', v)} />
           </div>
           <p className="mt-1 text-sm text-gray-500">Total: {total}</p>
+        </div>
+
+        <div>
+          <p className="mb-2 text-sm font-medium text-gray-700">Estoque</p>
+          <EstoqueInput itens={estoque} onChange={setEstoque} />
         </div>
 
         <LoadingButton type="submit" loading={loading} className="w-full sm:w-auto sm:min-w-[12rem] sm:self-end">

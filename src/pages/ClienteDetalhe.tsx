@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
 import { PaginationBar } from '../components/PaginationBar'
-import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2, Package } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Loader2, ClipboardList, Trash2, Package, Warehouse } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { maskCNPJ, maskCEP, maskTelefone, maskIE } from '../lib/masks'
 import { formatarDataBr, normCodigo, compararCodigos } from '../lib/utils'
@@ -20,6 +20,12 @@ interface ProdutoCliente {
   ultimaCompra: string
 }
 
+interface EstoqueItem {
+  codigo: string
+  quantidade: number
+  descricao: string | null
+}
+
 const VISITAS_PAGE_SIZE = 15
 
 export default function ClienteDetalhe() {
@@ -32,6 +38,7 @@ export default function ClienteDetalhe() {
   const [visitasPage, setVisitasPage] = useState(1)
   const [filtroTipo, setFiltroTipo] = useState<'todos' | TipoVisita>('todos')
   const [produtosCliente, setProdutosCliente] = useState<ProdutoCliente[]>([])
+  const [estoqueCliente, setEstoqueCliente] = useState<EstoqueItem[]>([])
   const [loading, setLoading] = useState(true)
   const [deletando, setDeletando] = useState(false)
   const lastClienteIdRef = useRef<string | undefined>(undefined)
@@ -156,6 +163,48 @@ export default function ClienteDetalhe() {
         return b.quantidadeTotal - a.quantidadeTotal
       })
       setProdutosCliente(lista)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    ;(async () => {
+      const { data: estoqueData } = await supabase
+        .from('cliente_estoque')
+        .select('codigo, quantidade')
+        .eq('cliente_id', id)
+      if (cancelled || !estoqueData) {
+        if (!cancelled) setEstoqueCliente([])
+        return
+      }
+
+      const items: EstoqueItem[] = estoqueData.map((e) => ({
+        codigo: e.codigo,
+        quantidade: e.quantidade,
+        descricao: null,
+      }))
+
+      if (items.length > 0) {
+        const { data: produtos } = await supabase
+          .from('produtos')
+          .select('codigo, descricao')
+        if (cancelled) return
+        const descPorCodigo = new Map<string, string>()
+        for (const pr of produtos ?? []) {
+          descPorCodigo.set(normCodigo(pr.codigo), pr.descricao)
+        }
+        for (const item of items) {
+          const desc = descPorCodigo.get(normCodigo(item.codigo))
+          if (desc) item.descricao = desc
+        }
+      }
+
+      items.sort((a, b) => compararCodigos(a.codigo, b.codigo))
+      setEstoqueCliente(items)
     })()
     return () => {
       cancelled = true
@@ -300,6 +349,39 @@ export default function ClienteDetalhe() {
           </div>
         )}
       </div>
+
+      <h3 className="mb-2 text-sm font-semibold text-gray-500 uppercase tracking-wide">
+        Estoque
+      </h3>
+      {estoqueCliente.length === 0 ? (
+        <div className="mb-6 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs text-gray-400">
+          Nenhum item no estoque. Adicione itens editando o cliente.
+        </div>
+      ) : (
+        <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <Warehouse className="h-3.5 w-3.5" />
+            <span>{estoqueCliente.length} {estoqueCliente.length === 1 ? 'item' : 'itens'}</span>
+          </div>
+          <ul className="divide-y divide-gray-100">
+            {estoqueCliente.map((e) => (
+              <li key={e.codigo} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{e.codigo}</p>
+                    {e.descricao && (
+                      <p className="truncate text-xs text-gray-500">{e.descricao}</p>
+                    )}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                    {e.quantidade} un
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <h3 className="mb-2 text-sm font-semibold text-gray-500 uppercase tracking-wide">
         Produtos comprados

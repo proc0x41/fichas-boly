@@ -34,6 +34,14 @@ export interface ClienteContato {
   criado_em: string
 }
 
+export interface ClienteEstoque {
+  id: string
+  cliente_id: string
+  codigo: string
+  quantidade: number
+  criado_em: string
+}
+
 export interface Cliente {
   id: string
   vendedor_id: string
