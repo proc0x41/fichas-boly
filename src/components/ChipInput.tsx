@@ -37,50 +37,89 @@ interface ChipDiscountProps {
 function ChipDiscount({ override, global, onChange }: ChipDiscountProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  // Espelho em ref: o `onBlur` pode disparar com o closure de um render
+  // anterior (teclado mobile / troca rápida de foco); a ref sempre tem o
+  // valor mais recente digitado.
+  const draftRef = useRef('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const hasOverride = override !== null && override !== undefined
   const effective = hasOverride ? override! : global
 
+  const setDraftBoth = (v: string) => {
+    setDraft(v)
+    draftRef.current = v
+  }
+
   const startEdit = () => {
-    setDraft(hasOverride ? fmtPct(override!) : '')
+    setDraftBoth(hasOverride ? fmtPct(override!) : '')
     setEditing(true)
     setTimeout(() => inputRef.current?.focus(), 0)
   }
 
-  const save = () => {
-    const trimmed = draft.trim()
-    if (trimmed === '') {
-      // Vazio = limpa o override e volta a herdar o global.
+  /** `null` = herda o global; número = override (0 = sem desconto). */
+  const commit = (raw: string | null) => {
+    if (raw === null) {
       onChange(null)
     } else {
-      onChange(parsePercentInput(trimmed))
+      onChange(parsePercentInput(raw))
     }
     setEditing(false)
   }
 
+  const saveDraft = () => {
+    const trimmed = draftRef.current.trim()
+    // Vazio = limpa o override e volta a herdar o global.
+    // Para tirar o desconto do item é preciso 0 (botão "0%").
+    commit(trimmed === '' ? null : trimmed)
+  }
+
   if (editing) {
     return (
-      <input
-        ref={inputRef}
-        type="text"
-        inputMode="decimal"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            save()
-          } else if (e.key === 'Escape') {
-            setEditing(false)
-          }
-        }}
-        onBlur={save}
-        placeholder={`${fmtPct(global)}%`}
-        maxLength={6}
-        aria-label="Desconto deste item em percentual"
-        className="w-14 rounded border border-primary-500 px-1 py-0.5 text-center text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-      />
+      <span className="inline-flex items-center gap-1">
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => setDraftBoth(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              saveDraft()
+            } else if (e.key === 'Escape') {
+              setEditing(false)
+            }
+          }}
+          onBlur={saveDraft}
+          placeholder={`${fmtPct(global)}%`}
+          maxLength={6}
+          aria-label="Desconto deste item em % — digite 0 para sem desconto, apague para herdar o global"
+          className="w-14 rounded border border-primary-500 px-1 py-0.5 text-center text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+        />
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => commit('0')}
+          title="Sem desconto neste item"
+          aria-label="Sem desconto neste item"
+          className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800 ring-1 ring-blue-400 active:bg-blue-200"
+        >
+          0%
+        </button>
+        {hasOverride && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => commit(null)}
+            title="Voltar a herdar o desconto global"
+            aria-label="Voltar a herdar o desconto global"
+            className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 ring-1 ring-gray-300 active:bg-gray-200"
+          >
+            ↩
+          </button>
+        )}
+      </span>
     )
   }
 
@@ -90,8 +129,8 @@ function ChipDiscount({ override, global, onChange }: ChipDiscountProps) {
       onClick={startEdit}
       title={
         hasOverride
-          ? 'Desconto específico deste item — clique para alterar (vazio = volta para o global)'
-          : 'Herda o desconto global — clique para sobrescrever'
+          ? 'Desconto específico deste item — clique para alterar (botão 0% = sem desconto, ↩ = volta ao global)'
+          : 'Herda o desconto global — clique para tirar o desconto só deste item (botão 0%)'
       }
       className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums transition-colors ${
         hasOverride

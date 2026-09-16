@@ -878,7 +878,7 @@ export default function VisitaForm() {
               descontoGlobalPercent={totais.pct}
             />
             <p className="mt-1 text-[11px] text-gray-400">
-              Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar.
+              Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar. Toque no % do item para tirar o desconto só dele (botão 0% = sem desconto).
             </p>
           </div>
         )}
