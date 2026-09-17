@@ -320,6 +320,52 @@ export default function VisitaForm() {
     // Pedido/orçamento implicam visita bem-sucedida; status só é escolhido para tipo='visita'.
     const statusEfetivo: StatusVisita = tipoVisita === 'visita' ? status : 'visitado'
 
+    const payloadCodigos = () =>
+      itens.map((i) => ({
+        codigo: i.codigo.trim(),
+        quantidade: i.quantidade,
+        desconto_percent_override:
+          i.descontoOverride !== null && i.descontoOverride !== undefined
+            ? i.descontoOverride
+            : null,
+      }))
+
+    // Confere se os overrides por item foram gravados. O banco pode estar
+    // com a versão antiga do RPC `replace_visita_codigos` (anterior à
+    // migration-desconto-por-item), que reinsere os itens sem a coluna e
+    // anula os overrides silenciosamente — sem erro no save.
+    const conferirOverrides = async (visitaAlvoId: string) => {
+      if (
+        !itens.some((i) => i.descontoOverride !== null && i.descontoOverride !== undefined)
+      ) {
+        return
+      }
+      const { data: conf } = await supabase
+        .from('visita_codigos')
+        .select('codigo, desconto_percent_override')
+        .eq('visita_id', visitaAlvoId)
+      const gravados = new Map(
+        (
+          (conf as unknown as
+            | { codigo: string; desconto_percent_override: number | string | null }[]
+            | null) ?? []
+        ).map((c) => [normCodigo(c.codigo), c.desconto_percent_override]),
+      )
+      const perdeu = itens.some((i) => {
+        if (i.descontoOverride === null || i.descontoOverride === undefined) return false
+        const g = gravados.get(normCodigo(i.codigo))
+        if (g === null || g === undefined) return true
+        // numeric(5,2) grava com 2 casas — compara arredondado.
+        return Math.round(Number(g) * 100) !== Math.round(Number(i.descontoOverride) * 100)
+      })
+      if (perdeu) {
+        toast.error(
+          'Itens salvos, mas os descontos por item não foram gravados no banco — rode migration-desconto-por-item-rpc-repair.sql no SQL Editor.',
+          { duration: 7000 },
+        )
+      }
+    }
+
     if (isEditing && visitaId) {
       const { error } = await supabase
         .from('visitas')
@@ -339,19 +385,13 @@ export default function VisitaForm() {
       }
       const { error: codErr } = await supabase.rpc('replace_visita_codigos', {
         p_visita_id: visitaId,
-        p_codigos: itens.map((i) => ({
-          codigo: i.codigo.trim(),
-          quantidade: i.quantidade,
-          desconto_percent_override:
-            i.descontoOverride !== null && i.descontoOverride !== undefined
-              ? i.descontoOverride
-              : null,
-        })),
+        p_codigos: payloadCodigos(),
       })
       if (codErr) {
         toast.error('Erro ao salvar itens — itens anteriores foram preservados')
         return null
       }
+      await conferirOverrides(visitaId)
       markSaved()
       return { id: visitaId, numero: numeroPedido }
     }
@@ -383,18 +423,17 @@ export default function VisitaForm() {
     const novoNumero = (visita as { numero_pedido?: number }).numero_pedido ?? null
     setNumeroPedido(novoNumero)
     if (itens.length > 0) {
-      const { error: codErr } = await supabase.from('visita_codigos').insert(
-        itens.map((i) => ({
-          visita_id: novoId,
-          codigo: i.codigo.trim(),
-          quantidade: i.quantidade,
-          desconto_percent_override:
-            i.descontoOverride !== null && i.descontoOverride !== undefined
-              ? i.descontoOverride
-              : null,
-        })),
-      )
-      if (codErr) toast.error('Salvo, mas erro ao salvar itens')
+      // Mesmo caminho transacional da edição: delete + insert numa só
+      // transação (nunca delete() + insert() separados no cliente).
+      const { error: codErr } = await supabase.rpc('replace_visita_codigos', {
+        p_visita_id: novoId,
+        p_codigos: payloadCodigos(),
+      })
+      if (codErr) {
+        toast.error('Salvo, mas erro ao salvar itens')
+      } else {
+        await conferirOverrides(novoId)
+      }
     }
     markSaved()
     return { id: novoId, numero: novoNumero }
@@ -878,7 +917,7 @@ export default function VisitaForm() {
               descontoGlobalPercent={totais.pct}
             />
             <p className="mt-1 text-[11px] text-gray-400">
-              Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar. Toque no % do item para tirar o desconto só dele (botão 0% = sem desconto).
+              Informe o código e a quantidade. Pressione Enter no código para ir à quantidade, e Enter novamente para adicionar. Toque na quantidade ou no % do item para ajustar sem remover (botão 0% = sem desconto).
             </p>
           </div>
         )}

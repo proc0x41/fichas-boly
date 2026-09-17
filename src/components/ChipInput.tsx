@@ -143,6 +143,81 @@ function ChipDiscount({ override, global, onChange }: ChipDiscountProps) {
   )
 }
 
+interface ChipQuantidadeProps {
+  quantidade: number
+  onChange: (nova: number) => void
+}
+
+function ChipQuantidade({ quantidade, onChange }: ChipQuantidadeProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  // Mesmo espelho em ref do ChipDiscount: o `onBlur` pode disparar com o
+  // closure de um render anterior no teclado mobile.
+  const draftRef = useRef('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const setDraftBoth = (v: string) => {
+    setDraft(v)
+    draftRef.current = v
+  }
+
+  const startEdit = () => {
+    setDraftBoth(String(quantidade))
+    setEditing(true)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  const save = () => {
+    const trimmed = draftRef.current.trim()
+    const qtd = parseInt(trimmed, 10)
+    if (trimmed && Number.isFinite(qtd) && qtd > 0 && qtd <= 99999) {
+      if (qtd !== quantidade) onChange(qtd)
+    } else if (trimmed) {
+      toast.error('Quantidade deve ser entre 1 e 99999')
+    }
+    // Vazio ou inválido = descarta e mantém a anterior.
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(e) => setDraftBoth(e.target.value.replace(/\D/g, '').slice(0, 5))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            save()
+          } else if (e.key === 'Escape') {
+            setEditing(false)
+          }
+        }}
+        onBlur={save}
+        inputMode="numeric"
+        pattern="[0-9]*"
+        enterKeyHint="done"
+        maxLength={5}
+        aria-label="Quantidade do item"
+        className="w-16 rounded border border-primary-500 px-1 py-0.5 text-center text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={startEdit}
+      title="Quantidade — clique para alterar sem remover o item"
+      aria-label={`Quantidade ${quantidade} — clique para alterar`}
+      className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold text-primary-800 transition-colors hover:bg-white"
+    >
+      ×{quantidade}
+    </button>
+  )
+}
+
 export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, descontoGlobalPercent = 0, maxLength = 20, maxItems = 400 }: Props) {
   const [codigo, setCodigo] = useState('')
   const [quantidade, setQuantidade] = useState('')
@@ -269,6 +344,14 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, d
     onChange(
       itens.map((it, i) =>
         i === idx ? { ...it, descontoOverride: novo } : it,
+      ),
+    )
+  }
+
+  const alterarQuantidade = (idx: number, nova: number) => {
+    onChange(
+      itens.map((it, i) =>
+        i === idx ? { ...it, quantidade: nova } : it,
       ),
     )
   }
@@ -441,9 +524,10 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, d
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-1.5">
                     <span className="font-mono font-semibold">{item.codigo}</span>
-                    <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold text-primary-800">
-                      ×{item.quantidade}
-                    </span>
+                    <ChipQuantidade
+                      quantidade={item.quantidade}
+                      onChange={(v) => alterarQuantidade(idx, v)}
+                    />
                     <ChipDiscount
                       override={item.descontoOverride}
                       global={descontoGlobalPercent}
