@@ -1,3 +1,5 @@
+import { carregarCatalogo } from '../../lib/catalogo'
+import { valorLinha, avisoPrecos } from '../../lib/precos'
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
@@ -35,9 +37,10 @@ interface PedidoFull {
   vendedor_telefone: string | null
   cliente: Cliente
   contatos: ClienteContato[]
+  aviso_precos: string
   itens: ItemRow[]
   /** Dados crus dos códigos preservados pra alimentar o gerador de PDF. */
-  codigosRaw: { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+  codigosRaw: { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
   /** Catálogo de produtos indexado pelo código normalizado (para o PDF). */
   produtosPorCodigo: Map<string, ProdutoCatalogo>
   totais: {
@@ -81,7 +84,7 @@ export default function RepresentadaPedidoDetalhe() {
           `id, numero_pedido, data_visita, compartilhado_em, nota_emitida_em,
            condicoes_pagamento, observacao, desconto_percent, valor_frete, vendedor_id,
            cliente:clientes(*),
-           codigos:visita_codigos(codigo, quantidade, desconto_percent_override)`,
+           codigos:visita_codigos(codigo, quantidade, desconto_percent_override, preco_unitario)`,
         )
         .eq('id', id)
         .single()
@@ -108,7 +111,10 @@ export default function RepresentadaPedidoDetalhe() {
           .from('cliente_contatos')
           .select('id, cliente_id, tipo, valor, rotulo, ordem, criado_em')
           .eq('cliente_id', clienteRow.id),
-        supabase.from('produtos').select('codigo, descricao, preco_tabela').eq('ativo', true),
+        carregarCatalogo().then(data => ({ data })).catch(() => {
+          toast.error('Não foi possível carregar o catálogo; os valores sem preço salvo estão incompletos')
+          return { data: [] }
+        }),
         supabase
           .from('perfis')
           .select('nome, telefone')
@@ -136,7 +142,7 @@ export default function RepresentadaPedidoDetalhe() {
       const frete = Number((visita as { valor_frete: number | null }).valor_frete ?? 0)
       const codigos =
         ((visita as {
-          codigos: { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+          codigos: { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
         }).codigos ?? [])
 
       let subtotal = 0
@@ -144,7 +150,8 @@ export default function RepresentadaPedidoDetalhe() {
       let temOverride = false
       const itens: ItemRow[] = codigos.slice().sort((a, b) => compararCodigos(a.codigo, b.codigo)).map((c) => {
         const prod = produtosPorCodigo.get(normCodigo(c.codigo))
-        const preco = prod?.preco_tabela ?? 0
+        const linha = valorLinha(c.quantidade, c.preco_unitario, prod?.preco_tabela, desc, c.desconto_percent_override)
+        const preco = linha.preco
         const override = c.desconto_percent_override
         const pctEfetivo =
           override !== null && override !== undefined ? Number(override) : desc
@@ -153,7 +160,7 @@ export default function RepresentadaPedidoDetalhe() {
         }
         const fator = 1 - pctEfetivo / 100
         const precoLiquido = preco * fator
-        const sub = precoLiquido * c.quantidade
+        const sub = linha.liquido
         subtotal += preco * c.quantidade
         totalLiquido += sub
         return {
@@ -182,6 +189,7 @@ export default function RepresentadaPedidoDetalhe() {
         vendedor_telefone: perfilVendedor?.telefone ?? null,
         cliente: { ...clienteRow, contatos },
         contatos,
+        aviso_precos: avisoPrecos(codigos.filter(c => c.preco_unitario == null && produtosPorCodigo.has(normCodigo(c.codigo))).length, codigos.filter(c => c.preco_unitario == null && !produtosPorCodigo.has(normCodigo(c.codigo))).length),
         itens,
         codigosRaw: codigos,
         produtosPorCodigo,
@@ -222,6 +230,7 @@ export default function RepresentadaPedidoDetalhe() {
           visita_id: pedido.id,
           codigo: c.codigo,
           quantidade: c.quantidade,
+          preco_unitario: c.preco_unitario,
           desconto_percent_override:
             c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
               ? Number(c.desconto_percent_override)
@@ -421,6 +430,7 @@ export default function RepresentadaPedidoDetalhe() {
         </div>
       </section>
 
+      {pedido.aviso_precos && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{pedido.aviso_precos}</p>}
       {/* Resumo */}
       <section className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
         <dl className="space-y-1 text-sm">

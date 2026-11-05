@@ -79,6 +79,8 @@ Acesse `http://localhost:5173`.
 
 ## Deploy na Vercel
 
+Antes de publicar o painel de métricas, aplique `supabase/migration-admin-metricas.sql`. Veja as regras de cálculo, a sequência de aplicação e os testes em [Métricas administrativas](docs/admin-metricas.md).
+
 1. Conecte o repositório GitHub na Vercel
 2. Configure as **Environment Variables**:
    - `VITE_SUPABASE_URL`

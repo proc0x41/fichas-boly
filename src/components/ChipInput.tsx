@@ -539,6 +539,10 @@ export function ChipInput({ itens, onChange, onLookupCodigo, produtosCatalogo, d
                   ) : (
                     <p className="mt-0.5 truncate text-[11px] text-amber-700">Não cadastrado no catálogo</p>
                   )}
+                  {(item.precoUnitario != null || prod) && <p className="mt-0.5 text-[11px] text-primary-800">
+                    {Number(item.precoUnitario ?? prod?.preco_tabela).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {item.precoUnitario === null ? ' · estimado pelo catálogo atual' : item.precoUnitario != null ? ' · preço salvo' : ' · preço de tabela'}
+                  </p>}
                 </div>
                 <button
                   type="button"

@@ -10,6 +10,7 @@ import {
 } from './pedidoPdfConfig'
 import { fixUtf8MojibakeIfNeeded } from './fixUtf8Mojibake'
 import { normCodigo, formatCNPJ, compararCodigos } from './utils'
+import { avisoPrecos, valorLinha } from './precos'
 
 export interface ProdutoCatalogo {
   codigo: string
@@ -216,10 +217,15 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   let totalTabela = 0
   let totalLiquido = 0
   let temOverride = false
+  let estimados = 0
+  let semPreco = 0
   const codigosOrdenados = [...input.codigos].sort((a, b) => compararCodigos(a.codigo, b.codigo))
   codigosOrdenados.forEach((vc, idx) => {
     const p = input.produtosPorCodigo.get(normCodigo(vc.codigo))
-    const preco = p?.preco_tabela ?? 0
+    const linha = valorLinha(vc.quantidade, vc.preco_unitario, p?.preco_tabela, pctGlobal, vc.desconto_percent_override)
+    const preco = linha.preco
+    estimados += Number(linha.estimado)
+    semPreco += Number(linha.semPreco)
     const subTabela = preco * vc.quantidade
     totalTabela += subTabela
     // Override = desconto específico desta linha; null/undefined = usa o global.
@@ -230,17 +236,17 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
     }
     const fator = 1 - pctEfetivo / 100
     const precoLiq = preco * fator
-    const subLiq = precoLiq * vc.quantidade
+    const subLiq = linha.liquido
     totalLiquido += subLiq
     rows.push([
       String(idx + 1),
       vc.codigo.trim(),
       p?.descricao ? fixUtf8MojibakeIfNeeded(p.descricao) : 'Não cadastrado',
       String(vc.quantidade),
-      fmtBRL(preco),
+      linha.semPreco ? 'Sem preço' : fmtBRL(preco),
       fmtPct(pctEfetivo),
       fmtBRL(precoLiq),
-      fmtBRL(subLiq),
+      linha.semPreco ? '—' : fmtBRL(subLiq),
     ])
   })
 
@@ -333,6 +339,16 @@ export function buildPedidoPdfBlob(input: PedidoPdfInput): Blob {
   })
 
   ty = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? ty) + 4
+
+  const aviso = avisoPrecos(estimados, semPreco)
+  if (aviso) {
+    const linhasAviso = doc.splitTextToSize(aviso, innerW) as string[]
+    ty = ensureVerticalSpace(doc, ty, linhasAviso.length * 4 + 4)
+    doc.setFontSize(8)
+    doc.setTextColor(120, 75, 10)
+    doc.text(linhasAviso, MARGIN, ty + 3)
+    ty += linhasAviso.length * 4 + 4
+  }
 
   const condPg = input.visita.condicoes_pagamento?.trim() || '—'
   const obs = input.visita.observacao?.trim() || '—'

@@ -1,3 +1,5 @@
+import { carregarCatalogo } from '../lib/catalogo'
+import { valorLinha, avisoPrecos } from '../lib/precos'
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -22,6 +24,7 @@ interface PedidoRow {
   valor_frete: number
   desconto_percent: number
   total_itens: number
+  aviso_precos: string
   valor_total: number
   enviado_representada_em: string | null
   compartilhado_em: string | null
@@ -70,11 +73,7 @@ export default function Pedidos() {
   // valores zerados (= apenas frete) no primeiro render.
   useEffect(() => {
     let cancelled = false
-    void supabase
-      .from('produtos')
-      .select('codigo, preco_tabela')
-      .eq('ativo', true)
-      .then(({ data }) => {
+    void carregarCatalogo().then((data) => {
         if (cancelled) return
         const m = new Map<string, number>()
         for (const p of data ?? []) {
@@ -82,6 +81,8 @@ export default function Pedidos() {
         }
         setPrecos(m)
         setPrecosLoaded(true)
+      }).catch(() => {
+        if (!cancelled) { setPrecosLoaded(true); setPrecos(new Map()) }
       })
     return () => {
       cancelled = true
@@ -112,7 +113,7 @@ export default function Pedidos() {
          condicoes_pagamento, valor_frete, desconto_percent,
          enviado_representada_em, compartilhado_em, nota_emitida_em, cliente_id,
          ${clienteSelect},
-         codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)`,
+         codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override, preco_unitario)`,
         { count: 'exact' },
       )
       .eq('vendedor_id', user.id)
@@ -137,17 +138,19 @@ export default function Pedidos() {
           const cliente = raw.cliente as { fantasia: string } | null
           const codigos =
             (raw.codigos as
-              | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+              | { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
               | null) ?? []
           const desc = Number((raw.desconto_percent as number | null) ?? 0)
           const frete = Number((raw.valor_frete as number | null) ?? 0)
           // Calcula linha-a-linha porque cada item pode ter override do desconto.
           let totalLiquido = 0
+          let estimados = 0
+          let semPreco = 0
           for (const c of codigos) {
-            const preco = precos.get(normCodigo(c.codigo)) ?? 0
-            const override = c.desconto_percent_override
-            const efetivo = override !== null && override !== undefined ? Number(override) : desc
-            totalLiquido += preco * (1 - efetivo / 100) * c.quantidade
+            const linha = valorLinha(c.quantidade, c.preco_unitario, precos.get(normCodigo(c.codigo)), desc, c.desconto_percent_override)
+            totalLiquido += linha.liquido
+            estimados += Number(linha.estimado)
+            semPreco += Number(linha.semPreco)
           }
           const valorTotal = totalLiquido + frete
           return {
@@ -162,6 +165,7 @@ export default function Pedidos() {
             desconto_percent: desc,
             total_itens: codigos.length,
             valor_total: valorTotal,
+            aviso_precos: avisoPrecos(estimados, semPreco),
             enviado_representada_em: (raw.enviado_representada_em as string | null) ?? null,
             compartilhado_em: (raw.compartilhado_em as string | null) ?? null,
             nota_emitida_em: (raw.nota_emitida_em as string | null) ?? null,
@@ -292,6 +296,7 @@ export default function Pedidos() {
 
               {/* Valor + status + seta */}
               <div className="flex shrink-0 flex-col items-end gap-1">
+                {r.aviso_precos && <span title={r.aviso_precos} className="max-w-28 text-right text-[11px] text-amber-800">{r.aviso_precos.includes('incompletos') ? 'Valor incompleto' : 'Valor estimado'}</span>}
                 <span className="text-sm font-semibold tabular-nums text-gray-900">
                   {fmtBRL(r.valor_total)}
                 </span>

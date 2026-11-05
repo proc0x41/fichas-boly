@@ -1,3 +1,5 @@
+import { carregarCatalogo } from '../lib/catalogo'
+import { valorLinha, avisoPrecos } from '../lib/precos'
 import { useEffect, useState, useCallback, useMemo, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -69,7 +71,7 @@ export default function VisitaForm() {
       condicoesPagamento,
       valorFrete,
       descontoPercent,
-      itens,
+      itens: itens.map(({ codigo, quantidade, descontoOverride }) => ({ codigo, quantidade, descontoOverride })),
     }),
     [dataVisita, tipoVisita, status, observacao, condicoesPagamento, valorFrete, descontoPercent, itens],
   )
@@ -81,17 +83,17 @@ export default function VisitaForm() {
     let totalTabela = 0
     let totalLiquido = 0
     let itensSemPreco = 0
+    let itensEstimados = 0
     let temOverride = false
     for (const it of itens) {
       const prod = catalogoProdutos?.get(normCodigo(it.codigo)) ?? null
-      const preco = prod?.preco_tabela ?? 0
-      if (!prod) itensSemPreco += 1
+      const linha = valorLinha(it.quantidade, it.precoUnitario, prod?.preco_tabela, pct, it.descontoOverride)
+      if (linha.semPreco) itensSemPreco += 1
+      if (isEditing && linha.estimado) itensEstimados += 1
       const override = it.descontoOverride
-      const efetivo = override !== null && override !== undefined ? override : pct
       if (override !== null && override !== undefined && override !== pct) temOverride = true
-      const fator = 1 - efetivo / 100
-      totalTabela += preco * it.quantidade
-      totalLiquido += preco * fator * it.quantidade
+      totalTabela += linha.bruto
+      totalLiquido += linha.liquido
     }
     const desconto = Math.max(0, totalTabela - totalLiquido)
     return {
@@ -103,25 +105,22 @@ export default function VisitaForm() {
       total: totalLiquido + frete,
       qtdItens: itens.reduce((s, i) => s + i.quantidade, 0),
       itensSemPreco,
+      itensEstimados,
       temOverride,
     }
-  }, [itens, descontoPercent, valorFrete, catalogoProdutos])
+  }, [itens, descontoPercent, valorFrete, catalogoProdutos, isEditing])
 
   const fmtBRL = (v: number) =>
     v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   useEffect(() => {
-    supabase
-      .from('produtos')
-      .select('codigo, descricao, preco_tabela')
-      .eq('ativo', true)
-      .then(({ data }) => {
+    carregarCatalogo().then((data) => {
         const map = new Map<string, ProdutoPreview>()
         for (const p of data ?? []) {
           map.set(normCodigo(p.codigo), { descricao: p.descricao, preco_tabela: Number(p.preco_tabela), codigoCanonico: p.codigo })
         }
         setCatalogoProdutos(map)
-      })
+      }).catch(() => toast.error('Não foi possível carregar os preços do catálogo'))
   }, [])
 
   const lookupCodigo = useCallback(
@@ -217,7 +216,7 @@ export default function VisitaForm() {
     ;(async () => {
       const { data } = await supabase
         .from('visitas')
-        .select('*, codigos:visita_codigos(codigo, quantidade, desconto_percent_override)')
+        .select('*, codigos:visita_codigos(codigo, quantidade, desconto_percent_override, preco_unitario)')
         .eq('id', visitaId)
         .single()
       if (data) {
@@ -239,11 +238,12 @@ export default function VisitaForm() {
         setItens(
           (
             (data.codigos as
-              | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+              | { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
               | undefined) ?? []
           ).map((c) => ({
             codigo: c.codigo,
             quantidade: c.quantidade,
+            precoUnitario: c.preco_unitario,
             descontoOverride:
               c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
                 ? Number(c.desconto_percent_override)
@@ -260,7 +260,7 @@ export default function VisitaForm() {
     // Ignora visitas simples (tipo='visita') que não têm itens.
     const { data } = await supabase
       .from('visitas')
-      .select('id, codigos:visita_codigos(codigo, quantidade, desconto_percent_override)')
+      .select('id, codigos:visita_codigos(codigo, quantidade, desconto_percent_override, preco_unitario)')
       .eq('cliente_id', clienteId)
       .in('tipo_visita', ['pedido', 'orcamento'])
       .order('data_visita', { ascending: false })
@@ -270,7 +270,7 @@ export default function VisitaForm() {
 
     const anteriores =
       (data?.codigos as
-        | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+        | { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
         | undefined) ?? []
     if (anteriores.length > 0) {
       setItens(
@@ -330,20 +330,16 @@ export default function VisitaForm() {
             : null,
       }))
 
-    // Confere se os overrides por item foram gravados. O banco pode estar
-    // com a versão antiga do RPC `replace_visita_codigos` (anterior à
-    // migration-desconto-por-item), que reinsere os itens sem a coluna e
-    // anula os overrides silenciosamente — sem erro no save.
+    // Recarrega os preços confirmados pelo servidor e confere os descontos.
     const conferirOverrides = async (visitaAlvoId: string) => {
-      if (
-        !itens.some((i) => i.descontoOverride !== null && i.descontoOverride !== undefined)
-      ) {
-        return
-      }
       const { data: conf } = await supabase
         .from('visita_codigos')
-        .select('codigo, desconto_percent_override')
+        .select('codigo, desconto_percent_override, preco_unitario')
         .eq('visita_id', visitaAlvoId)
+      if (conf) {
+        const precosSalvos = new Map(conf.map(c => [normCodigo(c.codigo), c.preco_unitario]))
+        setItens(atuais => atuais.map(item => ({ ...item, precoUnitario: precosSalvos.get(normCodigo(item.codigo)) ?? null })))
+      }
       const gravados = new Map(
         (
           (conf as unknown as
@@ -431,6 +427,7 @@ export default function VisitaForm() {
       })
       if (codErr) {
         toast.error('Salvo, mas erro ao salvar itens')
+        return null
       } else {
         await conferirOverrides(novoId)
       }
@@ -446,7 +443,7 @@ export default function VisitaForm() {
         `
         *,
         cliente:clientes(*),
-        codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override)
+        codigos:visita_codigos(id, codigo, quantidade, desconto_percent_override, preco_unitario)
       `,
       )
       .eq('id', id)
@@ -474,9 +471,9 @@ export default function VisitaForm() {
     }
     const codigos =
       (row.codigos as
-        | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+        | { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
         | undefined) ?? []
-    const { data: produtosList } = await supabase.from('produtos').select('codigo, descricao, preco_tabela').eq('ativo', true)
+    const produtosList = await carregarCatalogo()
     const produtosPorCodigo = new Map<string, ProdutoCatalogo>()
     for (const p of produtosList ?? []) {
       produtosPorCodigo.set(normCodigo(p.codigo), {
@@ -505,6 +502,7 @@ export default function VisitaForm() {
         visita_id: id,
         codigo: c.codigo,
         quantidade: c.quantidade,
+        preco_unitario: c.preco_unitario,
         desconto_percent_override:
           c.desconto_percent_override !== null && c.desconto_percent_override !== undefined
             ? Number(c.desconto_percent_override)
@@ -1022,6 +1020,7 @@ export default function VisitaForm() {
                 <dd className="tabular-nums text-primary-700">{fmtBRL(totais.total)}</dd>
               </div>
             </dl>
+            {totais.itensEstimados > 0 && <p className="mt-2 text-xs text-amber-800">{avisoPrecos(totais.itensEstimados, 0)}</p>}
             {totais.itensSemPreco > 0 && (
               <p className="mt-2 text-[11px] text-amber-700">
                 ⚠ {totais.itensSemPreco}{' '}

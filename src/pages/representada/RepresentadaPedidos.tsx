@@ -1,3 +1,5 @@
+import { carregarCatalogo } from '../../lib/catalogo'
+import { valorLinha, avisoPrecos } from '../../lib/precos'
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
@@ -19,6 +21,7 @@ interface PedidoRow {
   cliente_cnpj: string | null
   vendedor_nome: string
   total_itens: number
+  aviso_precos: string
   valor_total: number
 }
 
@@ -40,11 +43,7 @@ export default function RepresentadaPedidos() {
   // Catálogo de preços (uma vez) para calcular o valor_total na lista.
   useEffect(() => {
     let cancelled = false
-    void supabase
-      .from('produtos')
-      .select('codigo, preco_tabela')
-      .eq('ativo', true)
-      .then(({ data }) => {
+    void carregarCatalogo().then((data) => {
         if (cancelled) return
         const m = new Map<string, number>()
         for (const p of data ?? []) {
@@ -52,6 +51,8 @@ export default function RepresentadaPedidos() {
         }
         setPrecos(m)
         setPrecosLoaded(true)
+      }).catch(() => {
+        if (!cancelled) { setPrecosLoaded(true); setPrecos(new Map()) }
       })
     return () => {
       cancelled = true
@@ -82,7 +83,7 @@ export default function RepresentadaPedidos() {
         `id, numero_pedido, data_visita, compartilhado_em, nota_emitida_em,
          desconto_percent, valor_frete, vendedor_id,
          ${clienteSelect},
-         codigos:visita_codigos(codigo, quantidade, desconto_percent_override)`,
+         codigos:visita_codigos(codigo, quantidade, desconto_percent_override, preco_unitario)`,
         { count: 'exact' },
       )
       .eq('tipo_visita', 'pedido')
@@ -131,16 +132,18 @@ export default function RepresentadaPedidos() {
         const cliente = raw.cliente as { fantasia: string; cnpj: string | null } | null
         const codigos =
           (raw.codigos as
-            | { codigo: string; quantidade: number; desconto_percent_override: number | null }[]
+            | { codigo: string; quantidade: number; preco_unitario: number | null; desconto_percent_override: number | null }[]
             | null) ?? []
         const desc = Number((raw.desconto_percent as number | null) ?? 0)
         const frete = Number((raw.valor_frete as number | null) ?? 0)
         let totalLiquido = 0
+          let estimados = 0
+          let semPreco = 0
         for (const c of codigos) {
-          const preco = precos.get(normCodigo(c.codigo)) ?? 0
-          const override = c.desconto_percent_override
-          const efetivo = override !== null && override !== undefined ? Number(override) : desc
-          totalLiquido += preco * (1 - efetivo / 100) * c.quantidade
+          const linha = valorLinha(c.quantidade, c.preco_unitario, precos.get(normCodigo(c.codigo)), desc, c.desconto_percent_override)
+            totalLiquido += linha.liquido
+            estimados += Number(linha.estimado)
+            semPreco += Number(linha.semPreco)
         }
         return {
           id: raw.id as string,
@@ -153,6 +156,7 @@ export default function RepresentadaPedidos() {
           vendedor_nome: nomePorVendedor.get(raw.vendedor_id as string) ?? '—',
           total_itens: codigos.length,
           valor_total: totalLiquido + frete,
+          aviso_precos: avisoPrecos(estimados, semPreco),
         }
       }),
     )
@@ -267,6 +271,7 @@ export default function RepresentadaPedidos() {
               </div>
 
               <div className="flex shrink-0 flex-col items-end gap-1">
+                {r.aviso_precos && <span title={r.aviso_precos} className="max-w-28 text-right text-[11px] text-amber-800">{r.aviso_precos.includes('incompletos') ? 'Valor incompleto' : 'Valor estimado'}</span>}
                 <span className="text-sm font-semibold tabular-nums text-gray-900">
                   {fmtBRL(r.valor_total)}
                 </span>

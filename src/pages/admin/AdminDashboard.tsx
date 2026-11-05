@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { Users, ClipboardList, Map, Package, Loader2, FileCheck } from 'lucide-react'
+import { AdminMetricas } from '../../components/AdminMetricas'
 
 interface Counts {
   vendedores: number
@@ -49,15 +50,17 @@ export default function AdminDashboard() {
   ]
 
   return (
-    <div className="px-4 pt-4">
+    <div className="mx-auto max-w-7xl px-4 pt-4 pb-8">
       <h2 className="mb-4 text-lg font-bold text-gray-900">Painel Admin</h2>
+      <AdminMetricas />
+      <h3 className="mt-8 mb-3 font-bold text-gray-900">Administração</h3>
 
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map(({ label, count, icon: Icon, to, color }) => (
             <Link
               key={to}

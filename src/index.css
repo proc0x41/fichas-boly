@@ -45,3 +45,13 @@ input[type="date"]::-webkit-inner-spin-button,
 input[type="date"]::-webkit-calendar-picker-indicator {
   margin: 0;
 }
+
+.admin-metricas :is(button, input, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary-700);
+  outline-offset: 3px;
+}
+.admin-metricas ::selection {
+  background: var(--color-primary-100);
+  color: var(--color-primary-900);
+}
+.admin-metricas input { caret-color: var(--color-primary-700); }

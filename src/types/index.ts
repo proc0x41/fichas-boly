@@ -111,6 +111,8 @@ export interface Visita {
 }
 
 export interface VisitaCodigo {
+  /** NULL em históricos anteriores à captura de preço. */
+  preco_unitario?: number | null
   id: string
   visita_id: string
   codigo: string
@@ -123,6 +125,7 @@ export interface VisitaCodigo {
 }
 
 export interface CodigoItem {
+  precoUnitario?: number | null
   codigo: string
   quantidade: number
   /** Override do desconto global para esse item (0–100). `null`/undefined = herda. */
