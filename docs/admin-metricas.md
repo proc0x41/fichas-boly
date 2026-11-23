@@ -12,14 +12,17 @@ A busca e a ordenação afetam somente os produtos. A participação usa o valor
 
 ## Aplicação em instalações existentes
 
+O painel separa as vendas em **Boly** e **importados**. Códigos normalizados com `lower(trim(codigo))` que começam com duas letras de A a Z (`^[a-z]{2}`) são importados; os demais são Boly. Cada grupo mostra valor após descontos, unidades, pedidos distintos e participação no valor vendido, sem frete. Pedidos mistos contam nos dois grupos; valores e unidades são distribuídos por item e somam os totais gerais. A busca e a paginação de produtos não alteram essa separação. Quantidades sem preço são incluídas, com aviso de valor incompleto; preços históricos e estimativas seguem as regras gerais.
+
 1. Autenticar a CLI Supabase e conferir o projeto vinculado.
 2. Aplicar **antes de publicar o frontend**:
 
    ```sh
    npx supabase db query --linked --file supabase/migration-admin-metricas.sql
+   npx supabase db query --linked --file supabase/migration-metricas-categorias.sql
    ```
 
-   Como alternativa, executar o arquivo inteiro no SQL Editor do projeto correto. A migration é transacional e idempotente; não faz backfill de preços antigos. Não executar migrations antigas de `replace_visita_codigos` depois desta, pois substituiriam a função atual.
+   Como alternativa, executar os arquivos inteiros no SQL Editor do projeto correto, nesta ordem. As migrations são transacionais e idempotentes; não fazem backfill de preços antigos. Se `migration-admin-metricas.sql` já foi aplicada, basta aplicar `migration-metricas-categorias.sql`. Não reaplicar a migration administrativa antiga após a de categorias, pois ela substitui a RPC de métricas. Não executar migrations antigas de `replace_visita_codigos` depois destas, pois substituiriam a função atual.
 
 3. Conferir com uma conta administrativa os totais de um intervalo conhecido e então publicar o frontend. Instalações novas usam `supabase/schema.sql`, já consolidado.
 

@@ -8,6 +8,7 @@ import { valorLinha } from '../src/lib/precos.ts'
 import { intervaloPeriodo, intervaloValido, comparacao, csvProdutos } from '../src/lib/adminMetricas.ts'
 
 const migration = await readFile(new URL('../supabase/migration-admin-metricas.sql', import.meta.url), 'utf8')
+const migrationCategorias = await readFile(new URL('../supabase/migration-metricas-categorias.sql', import.meta.url), 'utf8')
 const schema = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
 const admin = '00000000-0000-0000-0000-000000000001'
 const vendedor = '00000000-0000-0000-0000-000000000002'
@@ -74,6 +75,8 @@ test('schema, migration idempotente, histórico imutável, agregação e autoriz
     await itens(db, id(1), [{ codigo: 'A', quantidade: 2 }, { codigo: 'B', quantidade: 3, desconto_percent_override: 0 }, { codigo: 'DESCONHECIDO', quantidade: 4 }])
     await db.exec(migration)
     await db.exec(migration)
+    await db.exec(migrationCategorias)
+    await db.exec(migrationCategorias)
     assert.equal((await db.query('SELECT count(*)::int AS n FROM visita_codigos WHERE preco_unitario IS NULL')).rows[0].n, 3)
     await pedido(db, id(2), '2026-03-03')
     await itens(db, id(2), [{ codigo: 'A', quantidade: 1 }, { codigo: 'Z', quantidade: 2 }])
@@ -180,6 +183,8 @@ test('mais de 1.000 pedidos e produtos: totais, páginas estáveis, busca, orden
     const busca = await metricas(db, undefined, undefined, ",p_busca=>'P1205'")
     assert.equal(busca.total_produtos, 1)
     assert.equal(busca.resumo.valor, 1205)
+    assert.equal(busca.categorias.boly.valor, 1205)
+    assert.equal(busca.categorias.importados.valor, 0)
     assert.equal(busca.produtos[0].participacao, 0.08)
     assert.equal((await metricas(db, undefined, undefined, ",p_ordem=>'codigo',p_direcao=>'desc'")).produtos[0].codigo, 'P1205')
     assert.equal(csvProdutos(exportado.produtos, '2026-03-01', '2026-03-03').split('\r\n').length, 1206)
@@ -187,5 +192,45 @@ test('mais de 1.000 pedidos e produtos: totais, páginas estáveis, busca, orden
     assert.ok(csv.startsWith('\uFEFF'))
     assert.ok(csv.includes("'="))
     assert.ok(csv.includes('""aspas""'))
+  } finally { await db.close() }
+})
+
+test('Boly e importados: prefixos, descontos, pedidos mistos, preços ausentes e período', async () => {
+  const db = await banco()
+  try {
+    await db.exec(migrationCategorias)
+    await db.exec(migrationCategorias)
+    await db.exec(`INSERT INTO produtos(codigo,descricao,preco_tabela) VALUES
+      ('123','Boly numérico',10),('A123','Uma letra',20),('AB123','Importado',30),
+      (' cd456 ','Importado minúsculo',40),('1AB','Boly com letras internas',5),('EF0','Grátis',0)`)
+    await pedido(db, id(1), '2026-03-01', 'pedido', 10, 999)
+    await itens(db, id(1), [
+      { codigo: '123', quantidade: 2 }, { codigo: 'A123', quantidade: 1 },
+      { codigo: ' ab123 ', quantidade: 3, desconto_percent_override: 0 },
+      { codigo: 'CD456', quantidade: 1 }, { codigo: '1AB', quantidade: 2 },
+      { codigo: 'ZZ999', quantidade: 4 }, { codigo: 'EF0', quantidade: 1 },
+    ])
+    await pedido(db, id(2), '2026-03-03', 'pedido', 0)
+    await itens(db, id(2), [{ codigo: 'ab123', quantidade: 1 }])
+    for (const [n, data, tipo] of [[3, '2026-02-28', 'pedido'], [4, '2026-03-02', 'orcamento'], [5, '2026-03-02', 'visita']]) {
+      await pedido(db, id(n), data, tipo)
+      await itens(db, id(n), [{ codigo: 'AB123', quantidade: 100 }])
+    }
+    const m = await metricas(db)
+    assert.deepEqual(m.categorias.boly, { valor: 45, unidades: 5, pedidos: 1, participacao: 22.39, estimados: 0, sem_preco: 0 })
+    assert.deepEqual(m.categorias.importados, { valor: 156, unidades: 10, pedidos: 2, participacao: 77.61, estimados: 0, sem_preco: 1 })
+    assert.equal(m.categorias.boly.valor + m.categorias.importados.valor, m.resumo.valor)
+    assert.equal(m.categorias.boly.unidades + m.categorias.importados.unidades, m.resumo.unidades)
+    const filtrado = await metricas(db, undefined, undefined, ",p_busca=>'123',p_tamanho=>1,p_pagina=>2")
+    assert.deepEqual(filtrado.categorias, m.categorias, 'Busca e paginação não alteram totais por grupo')
+    await db.exec("UPDATE produtos SET preco_tabela = 300 WHERE codigo = 'AB123'")
+    assert.deepEqual((await metricas(db)).categorias, m.categorias, 'Mantém preços históricos')
+    await db.exec('DROP TRIGGER trg_visita_codigo_preco ON visita_codigos')
+    await db.exec("UPDATE visita_codigos SET preco_unitario = NULL WHERE lower(trim(codigo)) = 'ab123'")
+    assert.equal((await metricas(db)).categorias.importados.estimados, 2)
+    const vazio = await metricas(db, '2027-01-01', '2027-01-01')
+    for (const grupo of Object.values(vazio.categorias)) {
+      assert.deepEqual(grupo, { valor: 0, unidades: 0, pedidos: 0, participacao: 0, estimados: 0, sem_preco: 0 })
+    }
   } finally { await db.close() }
 })

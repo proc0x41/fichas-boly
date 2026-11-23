@@ -23,6 +23,10 @@ function resultado(inicio: string, fim: string, busca = '', pagina = 1, exportar
   return { inicio, fim, anterior_inicio: mover(inicio, -dias), anterior_fim: mover(inicio, -1), agrupamento: dias <= 90 ? 'dia' : 'mes',
     resumo: { valor, pedidos: 2, ticket: valor / 2, unidades: 20, clientes: 2, frete: 30, estimados: 0, sem_preco: 0 },
     anterior: { valor: 0, pedidos: 0, ticket: 0, unidades: 0, clientes: 0, frete: 0, estimados: 0, sem_preco: 0 },
+    categorias: {
+      boly: { valor: valor * 0.6, unidades: 12, pedidos: 2, participacao: 60, estimados: 0, sem_preco: 0 },
+      importados: { valor: valor * 0.4, unidades: 8, pedidos: 1, participacao: 40, estimados: 0, sem_preco: 0 },
+    },
     pendencias: { orcamentos: 3, valor_orcamentos: 500, frete_orcamentos: 20, estimados: 0, sem_preco: 0, nao_compartilhados: 1, aguardando_nota: 1 },
     serie, total_produtos: filtrados.length, produtos: exportar ? filtrados : filtrados.slice((pagina - 1) * 20, pagina * 20) }
 }
@@ -49,6 +53,9 @@ async function preparar(page: Page, role = 'admin', opcoes: { falha?: boolean; l
       if (opcoes.vazio) {
         dados.produtos = []; dados.total_produtos = 0
         for (const chave of Object.keys(dados.resumo) as (keyof typeof dados.resumo)[]) dados.resumo[chave] = 0
+        for (const grupo of Object.values(dados.categorias)) {
+          for (const chave of Object.keys(grupo) as (keyof typeof grupo)[]) grupo[chave] = 0
+        }
         for (const ponto of dados.serie) { ponto.valor = 0; ponto.pedidos = 0 }
       }
       return route.fulfill({ headers, body: JSON.stringify(dados) }).catch(() => {})
@@ -66,6 +73,10 @@ test('painel desktop: filtros, gráfico por teclado, busca, paginação e CSV', 
   await expect(page.getByRole('heading', { name: 'Produtos mais vendidos' })).toBeVisible()
   await expect(page.locator('dd').filter({ hasText: /^R\$\s*1\.234,50$/ })).toBeVisible()
   await expect(page.getByRole('link', { name: /Vendedores/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Produtos Boly', exact: true })).toContainText('740,70')
+  await expect(page.getByRole('region', { name: 'Produtos importados', exact: true })).toContainText('493,80')
+  await expect(page.getByRole('figure', { name: 'Participação no valor vendido' })).toContainText('60%')
+  await expect(page.getByRole('figure', { name: 'Participação no valor vendido' })).toContainText('40%')
   await page.screenshot({ path: 'test-results/admin-desktop.png' })
   const pontos = page.locator('svg[role="group"] circle')
   await pontos.first().focus()
@@ -76,6 +87,7 @@ test('painel desktop: filtros, gráfico por teclado, busca, paginação e CSV', 
   await page.getByRole('button', { name: 'Próxima', exact: true }).click()
   await expect(page.getByText('Página 2 de 2')).toBeVisible()
   await expect(page.getByRole('rowheader', { name: 'P025', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Produtos importados', exact: true })).toContainText('493,80')
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Exportar CSV' }).click()
   const arquivo = await download
@@ -87,6 +99,8 @@ test('painel desktop: filtros, gráfico por teclado, busca, paginação e CSV', 
   await expect(page.getByRole('rowheader', { name: 'P025', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Hoje', exact: true }).click()
   await expect(page.locator('dd').filter({ hasText: /^R\$\s*77,00$/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Produtos Boly', exact: true })).toContainText('46,20')
+  await expect(page.getByRole('region', { name: 'Produtos importados', exact: true })).toContainText('30,80')
 })
 
 test('celular: sem overflow de página, datas inválidas e gráfico mensal', async ({ page }) => {
@@ -95,7 +109,12 @@ test('celular: sem overflow de página, datas inválidas e gráfico mensal', asy
   await page.goto('/admin')
   await expect(page.locator('dd').filter({ hasText: /^R\$\s*1\.234,50$/ })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await expect(page.getByRole('region', { name: 'Produtos importados', exact: true })).toContainText('493,80')
   await page.screenshot({ path: 'test-results/admin-mobile.png' })
+  await page.getByRole('region', { name: 'Produtos Boly', exact: true }).evaluate(el => el.scrollIntoView({ block: 'start' }))
+  await page.screenshot({ path: 'test-results/admin-mobile-categorias.png' })
+  await page.getByRole('figure', { name: 'Participação no valor vendido' }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: 'test-results/admin-mobile-categorias-grafico.png' })
   await page.getByRole('heading', { name: /Evolução das vendas/ }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: 'test-results/admin-mobile-graficos.png' })
   await page.getByRole('heading', { name: 'Produtos mais vendidos' }).scrollIntoViewIfNeeded()
@@ -140,6 +159,8 @@ test('período sem vendas mantém gráficos e mostra ausência de produtos', asy
   await page.goto('/admin')
   await expect(page.getByText('Nenhuma venda registrada neste período.')).toBeVisible()
   await expect(page.getByText('Nenhum produto vendido neste período.')).toBeVisible()
+  await expect(page.getByText('Sem valor vendido para comparar neste período.')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Produtos Boly', exact: true })).toContainText('R$ 0,00')
   await expect(page.getByText('Sem base de comparação', { exact: true })).toHaveCount(5)
   await expect(page.locator('svg[role="group"] circle')).toHaveCount(10)
 })

@@ -1056,6 +1056,17 @@ BEGIN
       count(*) FILTER (WHERE estimado) AS estimados, count(*) FILTER (WHERE sem_preco) AS sem_preco
     FROM linhas WHERE tipo_visita = 'pedido' AND data_visita BETWEEN p_inicio AND p_fim AND codigo IS NOT NULL
     GROUP BY chave
+  ), categorias AS (
+    SELECT grupo,
+      jsonb_build_object('valor',coalesce(sum(l.valor),0),'unidades',coalesce(sum(l.quantidade),0),
+        'pedidos',count(DISTINCT l.id),
+        'participacao',coalesce(round(sum(l.valor) * 100 / nullif((SELECT sum(valor) FROM produtos),0),2),0),
+        'estimados',count(*) FILTER (WHERE l.estimado),'sem_preco',count(*) FILTER (WHERE l.sem_preco)) AS resumo
+    FROM (VALUES ('boly'),('importados')) grupos(grupo)
+    LEFT JOIN linhas l ON l.tipo_visita = 'pedido' AND l.data_visita BETWEEN p_inicio AND p_fim
+      AND l.codigo IS NOT NULL
+      AND CASE WHEN l.chave ~ '^[a-z]{2}' THEN 'importados' ELSE 'boly' END = grupo
+    GROUP BY grupo
   ), filtrados AS (
     SELECT *, coalesce(round(valor * 100 / nullif((SELECT sum(valor) FROM produtos),0),2),0) AS participacao
     FROM produtos WHERE coalesce(p_busca,'') = ''
@@ -1082,6 +1093,7 @@ BEGIN
     'agrupamento',CASE WHEN v_dias <= 90 THEN 'dia' ELSE 'mes' END,
     'resumo',(SELECT resumo FROM resumos WHERE periodo = 'atual'),
     'anterior',(SELECT resumo FROM resumos WHERE periodo = 'anterior'),
+    'categorias',(SELECT jsonb_object_agg(grupo,resumo) FROM categorias),
     'pendencias',(SELECT jsonb_build_object(
       'orcamentos',count(*) FILTER (WHERE tipo_visita = 'orcamento'),
       'valor_orcamentos',coalesce(sum(valor) FILTER (WHERE tipo_visita = 'orcamento'),0),

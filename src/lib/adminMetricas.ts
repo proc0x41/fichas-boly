@@ -7,9 +7,15 @@ export interface ProdutoMetrica {
   participacao: number; estimados: number; sem_preco: number
 }
 export interface PontoMetrica { data: string; valor: number; pedidos: number }
+export interface CategoriaMetrica {
+  valor: number; unidades: number; pedidos: number; participacao: number
+  estimados: number; sem_preco: number
+}
+export type CategoriasMetricas = Record<'boly' | 'importados', CategoriaMetrica>
 export interface Metricas {
   inicio: string; fim: string; anterior_inicio: string; anterior_fim: string; agrupamento: 'dia' | 'mes'
   resumo: ResumoMetricas; anterior: ResumoMetricas; serie: PontoMetrica[]
+  categorias?: CategoriasMetricas
   pendencias: { orcamentos: number; valor_orcamentos: number; frete_orcamentos: number
     estimados: number; sem_preco: number; nao_compartilhados: number; aguardando_nota: number }
   total_produtos: number; produtos: ProdutoMetrica[]

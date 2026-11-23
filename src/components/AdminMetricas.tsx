@@ -5,6 +5,7 @@ import { avisoPrecos } from '../lib/precos'
 import { comparacao, csvProdutos, dataBr, intervaloPeriodo, intervaloValido, moeda, numero,
   type Metricas, type OrdemProduto, type Periodo } from '../lib/adminMetricas'
 import { MetricasGrafico } from './MetricasGrafico'
+import { MetricasCategorias } from './MetricasCategorias'
 import { PaginationBar } from './PaginationBar'
 
 const periodos: [Periodo, string][] = [['hoje', 'Hoje'], ['7dias', 'Últimos 7 dias'], ['30dias', 'Últimos 30 dias'], ['mes', 'Mês atual'], ['personalizado', 'Personalizado']]
@@ -114,6 +115,8 @@ export function AdminMetricas() {
         </div>)}
       </dl>
       <p className="text-sm text-gray-600">Frete dos pedidos: <strong className="tabular-nums text-gray-900">{moeda(dados.resumo.frete)}</strong> · Período anterior: {moeda(dados.anterior.frete)}</p>
+      {dados.categorias ? <MetricasCategorias categorias={dados.categorias} />
+        : <p role="status" className="text-sm text-gray-600">A separação das vendas entre Boly e importados ainda não está disponível.</p>}
       <section className="rounded-xl border border-gray-200 bg-white p-4" aria-labelledby="evolucao-titulo">
         <h3 id="evolucao-titulo" className="mb-4 font-bold text-gray-900">Evolução das vendas <span className="text-sm font-normal text-gray-600">· por {dados.agrupamento === 'dia' ? 'dia' : 'mês'}</span></h3>
         {dados.resumo.pedidos === 0 && <p className="mb-4 text-sm text-gray-600">Nenhuma venda registrada neste período.</p>}
